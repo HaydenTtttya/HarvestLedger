@@ -1,0 +1,13 @@
+{
+  "menu.title": "Harvest Ledger",
+  "menu.subtitle": "Farm economy overview",
+  "menu.dynamic-pricing": "Dynamic pricing",
+  "menu.daily-ledger": "Daily ledger",
+  "menu.tax-system": "Taxes",
+  "menu.stamina": "Stamina",
+  "message.day-summary": "Harvest Ledger: yesterday's market pressure was {{pressure}}; {{stacks}} shipped item stacks were tracked.",
+  "message.tax-collected": "Harvest Ledger collected {{amount}}g in taxes.",
+  "message.tax-partial": "Harvest Ledger collected {{paid}}g in taxes; {{remaining}}g remains unpaid.",
+  "message.tax-assessed": "Harvest Ledger assessed {{amount}}g in taxes for tomorrow.",
+  "message.config-reloaded": "Harvest Ledger config reloaded."
+}

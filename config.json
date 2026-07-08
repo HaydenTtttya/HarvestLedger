@@ -1,0 +1,53 @@
+{
+  "EnableDynamicPricing": true,
+  "EnableDailyLedger": true,
+  "EnableStaminaBalance": true,
+  "EnableTaxSystem": true,
+  "MenuKey": "F8",
+  "DynamicPricing": {
+    "MinimumPriceMultiplier": 0.35,
+    "MaximumPriceMultiplier": 2.5,
+    "DailyDemandRecovery": 0.08,
+    "SalePressurePerItem": 0.015,
+    "QualityPriceWeight": 0.08,
+    "SeasonalBonus": 0.12,
+    "FriendshipBonus": 0.002,
+    "SkillBonus": 0.01,
+    "CategoryBaseMultipliers": {
+      "Seed": 1.12,
+      "Vegetable": 0.95,
+      "Fruit": 0.9,
+      "Flower": 1.08,
+      "Forage": 1.02,
+      "Fish": 0.92,
+      "ArtisanGoods": 1.0,
+      "Cooking": 1.05,
+      "Mining": 1.03,
+      "MonsterLoot": 1.1,
+      "Other": 1.0
+    },
+    "ExemptItemIds": []
+  },
+  "Stamina": {
+    "AxeCostMultiplier": 1.0,
+    "PickaxeCostMultiplier": 1.0,
+    "HoeCostMultiplier": 1.0,
+    "WateringCanCostMultiplier": 1.0,
+    "FishingRodCostMultiplier": 1.0,
+    "ScytheCostMultiplier": 0.0,
+    "WeaponCostMultiplier": 0.0
+  },
+  "Taxes": {
+    "DailyPropertyTax": 50,
+    "BuildingTax": 25,
+    "CapitalItemTax": 2,
+    "SprinklerTax": 3,
+    "IncomeTaxRate": 0.04,
+    "HighIncomeTaxRate": 0.08,
+    "HighIncomeThreshold": 10000,
+    "ProgressiveIncomeTax": true,
+    "MarriedReduction": 0.1,
+    "ChildReduction": 0.05,
+    "UnpaidTaxPenalty": 0.05
+  }
+}

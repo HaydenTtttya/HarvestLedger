@@ -9,7 +9,9 @@ public sealed class TaxLedger
     public int LifetimeCollectedTaxes { get; set; }
     public int UnpaidTaxes { get; set; }
     public int LastIncomeTax { get; set; }
-    public int LastPropertyTax { get; set; }
-    public int LastCapitalTax { get; set; }
-    public int LastSprinklerTax { get; set; }
+    public int LastLandUseTax { get; set; }
+    public int LastAutomationTax { get; set; }
+    public int LastSubsidyReduction { get; set; }
+    public int LastUsedTillableTiles { get; set; }
+    public int LastAutomationMachineCount { get; set; }
 }

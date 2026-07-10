@@ -1,13 +1,22 @@
 using StardewModdingAPI;
 using StardewValley;
-using StardewValley.Tools;
+using StardewValley.TerrainFeatures;
 using SObject = StardewValley.Object;
 
 namespace HarvestLedger.Framework.Services;
 
 public sealed class TaxService
 {
-    private static readonly HashSet<string> SprinklerIds = ["(BC)599", "(BC)621", "(BC)645", "599", "621", "645"];
+    private static readonly HashSet<string> AutomationMachineNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Keg",
+        "Preserves Jar",
+        "Crystalarium",
+        "Fish Smoker",
+        "Dehydrator",
+        "Cask",
+        "Bee House"
+    };
 
     private readonly IMonitor Monitor;
     private readonly ModConfig Config;
@@ -58,17 +67,22 @@ public sealed class TaxService
     {
         TaxLedger ledger = this.State.TaxLedger;
         int incomeTax = this.CalculateIncomeTax(this.State.LastDay.GrossShippingIncome);
-        int propertyTax = this.Config.Taxes.DailyPropertyTax + this.CountFarmBuildings() * this.Config.Taxes.BuildingTax;
-        int capitalTax = this.CountCapitalItems() * this.Config.Taxes.CapitalItemTax;
-        int sprinklerTax = this.CountSprinklers() * this.Config.Taxes.SprinklerTax;
+        int usedTillableTiles = this.CountUsedTillableTiles();
+        int landUseTax = this.CalculateLandUseTax(usedTillableTiles);
+        int automationMachineCount = this.CountAutomationMachines();
+        int automationTax = (int)Math.Round(Math.Sqrt(automationMachineCount) * Math.Max(0, this.Config.Taxes.AutomationRate), MidpointRounding.AwayFromZero);
+        int totalBeforeSubsidy = Math.Max(0, incomeTax + landUseTax + automationTax);
+        int subsidyReduction = (int)Math.Round(totalBeforeSubsidy * Math.Clamp(this.State.SeasonalSubsidyTaxReduction, 0, 0.95), MidpointRounding.AwayFromZero);
+        int total = Math.Max(0, totalBeforeSubsidy - subsidyReduction);
 
-        int total = Math.Max(0, incomeTax + propertyTax + capitalTax + sprinklerTax);
         ledger.PendingTaxes += total;
         ledger.LastAssessedTaxes = total;
         ledger.LastIncomeTax = incomeTax;
-        ledger.LastPropertyTax = propertyTax;
-        ledger.LastCapitalTax = capitalTax;
-        ledger.LastSprinklerTax = sprinklerTax;
+        ledger.LastLandUseTax = landUseTax;
+        ledger.LastAutomationTax = automationTax;
+        ledger.LastSubsidyReduction = subsidyReduction;
+        ledger.LastUsedTillableTiles = usedTillableTiles;
+        ledger.LastAutomationMachineCount = automationMachineCount;
         ledger.LifetimeAssessedTaxes += total;
 
         if (total > 0)
@@ -80,87 +94,78 @@ public sealed class TaxService
         if (income <= 0)
             return 0;
 
-        double rate = this.Config.Taxes.IncomeTaxRate;
-        if (this.Config.Taxes.ProgressiveIncomeTax && income > this.Config.Taxes.HighIncomeThreshold)
-        {
-            int baseIncome = this.Config.Taxes.HighIncomeThreshold;
-            int highIncome = income - baseIncome;
-            double total = baseIncome * rate + highIncome * this.Config.Taxes.HighIncomeTaxRate;
-            return this.ApplyHouseholdReduction(total);
-        }
+        double rate;
+        if (income <= this.Config.Taxes.FirstIncomeBracket)
+            rate = this.Config.Taxes.FirstIncomeTaxRate;
+        else if (income <= this.Config.Taxes.SecondIncomeBracket)
+            rate = this.Config.Taxes.SecondIncomeTaxRate;
+        else if (income <= this.Config.Taxes.ThirdIncomeBracket)
+            rate = this.Config.Taxes.ThirdIncomeTaxRate;
+        else
+            rate = this.Config.Taxes.TopIncomeTaxRate;
 
-        return this.ApplyHouseholdReduction(income * rate);
+        return Math.Max(0, (int)Math.Round(income * Math.Clamp(rate, 0, 1), MidpointRounding.AwayFromZero));
     }
 
-    private int ApplyHouseholdReduction(double amount)
+    private int CalculateLandUseTax(int usedTiles)
     {
-        double reduction = 0;
-        if (!string.IsNullOrWhiteSpace(Game1.player.spouse))
-            reduction += this.Config.Taxes.MarriedReduction;
+        if (usedTiles <= this.Config.Taxes.FreeLandUseTiles)
+            return 0;
 
-        reduction += Math.Max(0, Game1.player.getChildrenCount()) * this.Config.Taxes.ChildReduction;
-        reduction = Math.Clamp(reduction, 0, 0.75);
-        return Math.Max(0, (int)Math.Round(amount * (1 - reduction), MidpointRounding.AwayFromZero));
+        int rate;
+        if (usedTiles <= this.Config.Taxes.LowLandUseTileLimit)
+            rate = this.Config.Taxes.LowLandUseTaxPerTile;
+        else if (usedTiles <= this.Config.Taxes.MediumLandUseTileLimit)
+            rate = this.Config.Taxes.MediumLandUseTaxPerTile;
+        else
+            rate = this.Config.Taxes.HighLandUseTaxPerTile;
+
+        return Math.Max(0, usedTiles * Math.Max(0, rate));
     }
 
-    private int CountFarmBuildings()
+    private int CountUsedTillableTiles()
     {
         try
         {
-            return Game1.getFarm().buildings.Count;
+            int count = 0;
+            foreach (var pair in Game1.getFarm().terrainFeatures.Pairs)
+            {
+                if (pair.Value is HoeDirt)
+                    count++;
+            }
+
+            return count;
         }
         catch (Exception ex)
         {
-            this.Monitor.Log($"Could not count farm buildings for taxes: {ex.Message}", LogLevel.Trace);
+            this.Monitor.Log($"Could not count farm tillable tiles for taxes: {ex.Message}", LogLevel.Trace);
             return 0;
         }
     }
 
-    private int CountCapitalItems()
+    private int CountAutomationMachines()
     {
         int count = 0;
         foreach (GameLocation location in Game1.locations)
         {
             foreach (SObject obj in location.objects.Values)
             {
-                if (obj.bigCraftable.Value && !IsSprinkler(obj))
+                if (IsAutomationMachine(obj))
                     count++;
             }
         }
 
         foreach (Item? item in Game1.player.Items)
         {
-            if (item is SObject obj && obj.bigCraftable.Value && !IsSprinkler(obj))
+            if (item is SObject obj && IsAutomationMachine(obj))
                 count += Math.Max(1, obj.Stack);
         }
 
         return count;
     }
 
-    private int CountSprinklers()
+    private static bool IsAutomationMachine(SObject obj)
     {
-        int count = 0;
-        foreach (GameLocation location in Game1.locations)
-        {
-            foreach (SObject obj in location.objects.Values)
-            {
-                if (IsSprinkler(obj))
-                    count++;
-            }
-        }
-
-        foreach (Item? item in Game1.player.Items)
-        {
-            if (item is SObject obj && IsSprinkler(obj))
-                count += Math.Max(1, obj.Stack);
-        }
-
-        return count;
-    }
-
-    private static bool IsSprinkler(SObject obj)
-    {
-        string id = ItemClassifier.GetStableItemId(obj);
-        return SprinklerIds.Contains(id) || obj.Name.Contains("Sprinkler", StringComparison.OrdinalIgnoreCase);
+        return obj.bigCraftable.Value && AutomationMachineNames.Contains(obj.Name);
     }
 }

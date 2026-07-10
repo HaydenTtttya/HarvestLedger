@@ -2,11 +2,11 @@ namespace HarvestLedger.Framework;
 
 public sealed class StaminaConfig
 {
-    public double AxeCostMultiplier { get; set; } = 1.0;
-    public double PickaxeCostMultiplier { get; set; } = 1.0;
-    public double HoeCostMultiplier { get; set; } = 1.0;
-    public double WateringCanCostMultiplier { get; set; } = 1.0;
-    public double FishingRodCostMultiplier { get; set; } = 1.0;
-    public double ScytheCostMultiplier { get; set; }
-    public double WeaponCostMultiplier { get; set; }
+    public double AxeToolRate { get; set; } = 1.0;
+    public double PickaxeToolRate { get; set; } = 1.0;
+    public double HoeToolRate { get; set; } = 1.0;
+    public double WateringCanToolRate { get; set; } = 1.0;
+    public double FishingRodCost { get; set; } = 1.0;
+    public double ScytheCost { get; set; }
+    public double WeaponCost { get; set; }
 }

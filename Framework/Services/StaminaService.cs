@@ -42,27 +42,30 @@ public sealed class StaminaService
         if (spent <= 0)
             return;
 
-        double multiplier = this.GetMultiplier(this.ToolInUse);
-        if (Math.Abs(multiplier - 1.0) < 0.001)
+        double extraCost = this.GetExtraCost(this.ToolInUse);
+        if (extraCost <= 0)
             return;
 
-        float desiredSpent = (float)Math.Max(0, spent * multiplier);
-        float adjustment = spent - desiredSpent;
-        player.Stamina = Math.Clamp(after + adjustment, 0, player.MaxStamina);
+        player.Stamina = Math.Clamp(after - (float)extraCost, 0, player.MaxStamina);
     }
 
-    private double GetMultiplier(Tool? tool)
+    private double GetExtraCost(Tool? tool)
     {
         return tool switch
         {
-            Axe => this.Config.AxeCostMultiplier,
-            Pickaxe => this.Config.PickaxeCostMultiplier,
-            Hoe => this.Config.HoeCostMultiplier,
-            WateringCan => this.Config.WateringCanCostMultiplier,
-            FishingRod => this.Config.FishingRodCostMultiplier,
-            MeleeWeapon => this.Config.WeaponCostMultiplier,
-            _ when tool?.Name.Contains("Scythe", StringComparison.OrdinalIgnoreCase) == true => this.Config.ScytheCostMultiplier,
-            _ => 1.0
+            Axe axe => this.GetUpgradedToolCost(this.Config.AxeToolRate, axe),
+            Pickaxe pickaxe => this.GetUpgradedToolCost(this.Config.PickaxeToolRate, pickaxe),
+            Hoe hoe => this.GetUpgradedToolCost(this.Config.HoeToolRate, hoe),
+            WateringCan wateringCan => this.GetUpgradedToolCost(this.Config.WateringCanToolRate, wateringCan),
+            FishingRod => Math.Max(0, this.Config.FishingRodCost),
+            _ when tool?.Name.Contains("Scythe", StringComparison.OrdinalIgnoreCase) == true => Math.Max(0, this.Config.ScytheCost),
+            MeleeWeapon => Math.Max(0, this.Config.WeaponCost),
+            _ => 0
         };
+    }
+
+    private double GetUpgradedToolCost(double configuredToolRate, Tool tool)
+    {
+        return Math.Max(0, configuredToolRate) * (1 + Math.Max(0, tool.UpgradeLevel));
     }
 }

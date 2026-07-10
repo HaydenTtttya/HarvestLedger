@@ -2,15 +2,19 @@ namespace HarvestLedger.Framework;
 
 public sealed class TaxConfig
 {
-    public int DailyPropertyTax { get; set; } = 50;
-    public int BuildingTax { get; set; } = 25;
-    public int CapitalItemTax { get; set; } = 2;
-    public int SprinklerTax { get; set; } = 3;
-    public double IncomeTaxRate { get; set; } = 0.04;
-    public double HighIncomeTaxRate { get; set; } = 0.08;
-    public int HighIncomeThreshold { get; set; } = 10000;
-    public bool ProgressiveIncomeTax { get; set; } = true;
-    public double MarriedReduction { get; set; } = 0.1;
-    public double ChildReduction { get; set; } = 0.05;
+    public int FirstIncomeBracket { get; set; } = 25000;
+    public int SecondIncomeBracket { get; set; } = 75000;
+    public int ThirdIncomeBracket { get; set; } = 150000;
+    public double FirstIncomeTaxRate { get; set; } = 0.06;
+    public double SecondIncomeTaxRate { get; set; } = 0.09;
+    public double ThirdIncomeTaxRate { get; set; } = 0.12;
+    public double TopIncomeTaxRate { get; set; } = 0.16;
+    public int FreeLandUseTiles { get; set; } = 120;
+    public int LowLandUseTileLimit { get; set; } = 300;
+    public int MediumLandUseTileLimit { get; set; } = 700;
+    public int LowLandUseTaxPerTile { get; set; } = 1;
+    public int MediumLandUseTaxPerTile { get; set; } = 2;
+    public int HighLandUseTaxPerTile { get; set; } = 3;
+    public double AutomationRate { get; set; } = 12;
     public double UnpaidTaxPenalty { get; set; } = 0.05;
 }

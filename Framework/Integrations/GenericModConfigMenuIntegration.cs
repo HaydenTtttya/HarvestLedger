@@ -23,26 +23,28 @@ internal static class GenericModConfigMenuIntegration
         api.AddSectionTitle(manifest, () => "Dynamic pricing");
         api.AddNumberOption(manifest, () => (float)config.DynamicPricing.MinimumPriceMultiplier, value => config.DynamicPricing.MinimumPriceMultiplier = value, () => "Minimum multiplier", null, 0.05f, 1f, 0.05f);
         api.AddNumberOption(manifest, () => (float)config.DynamicPricing.MaximumPriceMultiplier, value => config.DynamicPricing.MaximumPriceMultiplier = value, () => "Maximum multiplier", null, 1f, 5f, 0.05f);
-        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.DailyDemandRecovery, value => config.DynamicPricing.DailyDemandRecovery = value, () => "Daily demand recovery", null, 0f, 1f, 0.01f);
-        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.SalePressurePerItem, value => config.DynamicPricing.SalePressurePerItem = value, () => "Sale pressure per item", null, 0f, 0.1f, 0.001f);
+        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.SaturationPoint, value => config.DynamicPricing.SaturationPoint = value, () => "Saturation point", null, 10f, 2000f, 10f);
+        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.MaxPenalty, value => config.DynamicPricing.MaxPenalty = value, () => "Max pressure impact", null, 0f, 1f, 0.01f);
+        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.BaseRecovery, value => config.DynamicPricing.BaseRecovery = value, () => "Base recovery", null, 0f, 1f, 0.01f);
+        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.MaxDiversityRecovery, value => config.DynamicPricing.MaxDiversityRecovery = value, () => "Max diversity recovery", null, 0f, 1f, 0.01f);
+        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.SubsidyRecovery, value => config.DynamicPricing.SubsidyRecovery = value, () => "Subsidy recovery", null, 0f, 1f, 0.01f);
         api.AddNumberOption(manifest, () => (float)config.DynamicPricing.SkillBonus, value => config.DynamicPricing.SkillBonus = value, () => "Skill bonus per level", null, 0f, 0.1f, 0.001f);
-        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.QualityPriceWeight, value => config.DynamicPricing.QualityPriceWeight = value, () => "Quality price weight", null, 0f, 0.5f, 0.01f);
 
         api.AddSectionTitle(manifest, () => "Taxes");
-        api.AddNumberOption(manifest, () => config.Taxes.DailyPropertyTax, value => config.Taxes.DailyPropertyTax = value, () => "Daily property tax", null, 0, 1000, 5);
-        api.AddNumberOption(manifest, () => config.Taxes.BuildingTax, value => config.Taxes.BuildingTax = value, () => "Building tax", null, 0, 500, 5);
-        api.AddNumberOption(manifest, () => config.Taxes.CapitalItemTax, value => config.Taxes.CapitalItemTax = value, () => "Capital item tax", null, 0, 100, 1);
-        api.AddNumberOption(manifest, () => config.Taxes.SprinklerTax, value => config.Taxes.SprinklerTax = value, () => "Sprinkler tax", null, 0, 100, 1);
-        api.AddNumberOption(manifest, () => (float)config.Taxes.IncomeTaxRate, value => config.Taxes.IncomeTaxRate = value, () => "Income tax rate", null, 0f, 0.5f, 0.01f);
-        api.AddNumberOption(manifest, () => (float)config.Taxes.HighIncomeTaxRate, value => config.Taxes.HighIncomeTaxRate = value, () => "High-income tax rate", null, 0f, 0.75f, 0.01f);
-        api.AddNumberOption(manifest, () => config.Taxes.HighIncomeThreshold, value => config.Taxes.HighIncomeThreshold = value, () => "High-income threshold", null, 0, 100000, 500);
+        api.AddNumberOption(manifest, () => (float)config.Taxes.FirstIncomeTaxRate, value => config.Taxes.FirstIncomeTaxRate = value, () => "Income tax 0-25k", null, 0f, 0.5f, 0.01f);
+        api.AddNumberOption(manifest, () => (float)config.Taxes.SecondIncomeTaxRate, value => config.Taxes.SecondIncomeTaxRate = value, () => "Income tax 25k-75k", null, 0f, 0.5f, 0.01f);
+        api.AddNumberOption(manifest, () => (float)config.Taxes.ThirdIncomeTaxRate, value => config.Taxes.ThirdIncomeTaxRate = value, () => "Income tax 75k-150k", null, 0f, 0.5f, 0.01f);
+        api.AddNumberOption(manifest, () => (float)config.Taxes.TopIncomeTaxRate, value => config.Taxes.TopIncomeTaxRate = value, () => "Income tax 150k+", null, 0f, 0.5f, 0.01f);
+        api.AddNumberOption(manifest, () => (float)config.Taxes.AutomationRate, value => config.Taxes.AutomationRate = value, () => "Automation rate", null, 0f, 100f, 1f);
 
         api.AddSectionTitle(manifest, () => "Stamina");
-        api.AddNumberOption(manifest, () => (float)config.Stamina.AxeCostMultiplier, value => config.Stamina.AxeCostMultiplier = value, () => "Axe cost", null, 0f, 5f, 0.05f);
-        api.AddNumberOption(manifest, () => (float)config.Stamina.PickaxeCostMultiplier, value => config.Stamina.PickaxeCostMultiplier = value, () => "Pickaxe cost", null, 0f, 5f, 0.05f);
-        api.AddNumberOption(manifest, () => (float)config.Stamina.HoeCostMultiplier, value => config.Stamina.HoeCostMultiplier = value, () => "Hoe cost", null, 0f, 5f, 0.05f);
-        api.AddNumberOption(manifest, () => (float)config.Stamina.WateringCanCostMultiplier, value => config.Stamina.WateringCanCostMultiplier = value, () => "Watering can cost", null, 0f, 5f, 0.05f);
-        api.AddNumberOption(manifest, () => (float)config.Stamina.FishingRodCostMultiplier, value => config.Stamina.FishingRodCostMultiplier = value, () => "Fishing rod cost", null, 0f, 5f, 0.05f);
+        api.AddNumberOption(manifest, () => (float)config.Stamina.AxeToolRate, value => config.Stamina.AxeToolRate = value, () => "Axe extra rate", null, 0f, 10f, 0.1f);
+        api.AddNumberOption(manifest, () => (float)config.Stamina.PickaxeToolRate, value => config.Stamina.PickaxeToolRate = value, () => "Pickaxe extra rate", null, 0f, 10f, 0.1f);
+        api.AddNumberOption(manifest, () => (float)config.Stamina.HoeToolRate, value => config.Stamina.HoeToolRate = value, () => "Hoe extra rate", null, 0f, 10f, 0.1f);
+        api.AddNumberOption(manifest, () => (float)config.Stamina.WateringCanToolRate, value => config.Stamina.WateringCanToolRate = value, () => "Watering can extra rate", null, 0f, 10f, 0.1f);
+        api.AddNumberOption(manifest, () => (float)config.Stamina.FishingRodCost, value => config.Stamina.FishingRodCost = value, () => "Fishing rod flat cost", null, 0f, 10f, 0.1f);
+        api.AddNumberOption(manifest, () => (float)config.Stamina.ScytheCost, value => config.Stamina.ScytheCost = value, () => "Scythe flat cost", null, 0f, 10f, 0.1f);
+        api.AddNumberOption(manifest, () => (float)config.Stamina.WeaponCost, value => config.Stamina.WeaponCost = value, () => "Weapon flat cost", null, 0f, 10f, 0.1f);
     }
 }
 

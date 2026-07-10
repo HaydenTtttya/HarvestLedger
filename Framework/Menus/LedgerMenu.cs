@@ -223,8 +223,6 @@ public sealed class LedgerMenu : IClickableMenu
         this.DrawLedgerIcon(b, LedgerIcon.MarketPressureGauge, x, y + 2, 44);
         Utility.drawTextWithShadow(b, this.T("menu.title"), Game1.dialogueFont, new Vector2(x + 58, y), Game1.textColor);
 
-        TaxLedger taxes = this.State.TaxLedger;
-        int taxesDue = taxes.PendingTaxes + taxes.UnpaidTaxes;
         string topPressure = string.IsNullOrWhiteSpace(this.State.LastDay.TopPressuredItemId)
             ? this.T("menu.status.top-pressure-none")
             : this.T("menu.status.top-pressure", new { item = GetDisplayNameFromItemId(this.State.LastDay.TopPressuredItemId), pressure = this.State.LastDay.TopPressuredItemPressure.ToString("P0") });
@@ -233,13 +231,29 @@ public sealed class LedgerMenu : IClickableMenu
             this.T("menu.status.prices", new { state = this.T(this.Config.EnableDynamicPricing ? "menu.state.on" : "menu.state.off") }),
             this.T("menu.status.sold", new { count = this.State.LastDay.SoldItemCount, gold = this.State.LastDay.GrossShippingIncome }),
             topPressure,
-            this.Config.EnableTaxSystem
-                ? this.T("menu.status.tax-due", new { gold = taxesDue })
-                : this.T("menu.status.tax-off")
+            this.GetTaxStatusText(this.State.TaxLedger)
         ];
 
         this.DrawStatusLine(b, statusItems, x, y + 48, this.width - (SidePadding * 2) - 36);
         this.DrawSearchBox(b, x, y + 76);
+    }
+
+    private string GetTaxStatusText(TaxLedger taxes)
+    {
+        if (!this.Config.EnableTaxSystem)
+            return this.T("menu.status.tax-off");
+
+        int taxesDue = taxes.PendingTaxes + taxes.UnpaidTaxes;
+        if (taxesDue > 0)
+            return this.T("menu.status.tax-due", new { gold = taxesDue });
+
+        if (taxes.LastCollectedTaxes > 0)
+            return this.T("menu.status.tax-collected", new { gold = taxes.LastCollectedTaxes });
+
+        if (taxes.LastAssessedTaxes > 0)
+            return this.T("menu.status.tax-assessed", new { gold = taxes.LastAssessedTaxes });
+
+        return this.T("menu.status.tax-none");
     }
 
     private void DrawPolicyPanels(SpriteBatch b)

@@ -50,6 +50,9 @@ public static class ItemClassifier
         if (category == -4 || type.Contains("fish", StringComparison.OrdinalIgnoreCase))
             return ItemMarketCategory.Fish;
 
+        if (category is -5 or -6 or -14 || type.Contains("animal", StringComparison.OrdinalIgnoreCase) || type.Contains("egg", StringComparison.OrdinalIgnoreCase) || type.Contains("milk", StringComparison.OrdinalIgnoreCase))
+            return ItemMarketCategory.AnimalProduct;
+
         if (category == -26 || type.Contains("artisan", StringComparison.OrdinalIgnoreCase))
             return ItemMarketCategory.ArtisanGoods;
 

@@ -21,6 +21,7 @@ public sealed class DailyLedgerService
     public void CloseCurrentDay()
     {
         this.State.LastDay.Reset();
+        this.DynamicPricing.EvaluateSeasonalSubsidy();
 
         foreach (Item? item in this.GetShippingBinItems())
         {
@@ -28,14 +29,18 @@ public sealed class DailyLedgerService
                 continue;
 
             this.State.LastDay.TrackedStacks++;
-            this.State.LastDay.GrossShippingIncome += this.DynamicPricing.EstimateSaleValue(item);
+            int estimatedValue = this.DynamicPricing.EstimateSaleValue(item, this.Config.EnableDynamicPricing);
+            this.State.LastDay.GrossShippingIncome += estimatedValue;
 
             if (this.Config.EnableDynamicPricing)
-                this.DynamicPricing.TrackSoldItem(item);
+                this.DynamicPricing.TrackSoldItem(item, estimatedValue);
         }
 
-        this.State.LastDay.MarketPressure = this.DynamicPricing.GetAverageMarketPressure();
+        this.State.LastDay.DistinctSoldCategoryCount = this.State.LastDay.SoldByCategory.Count(pair => pair.Value > 0);
         this.State.LastDay.HadSales = this.State.LastDay.SoldItemCount > 0;
+        this.DynamicPricing.UpdateMarketExposure();
+        this.DynamicPricing.CaptureCropRotationSnapshot();
+        this.DynamicPricing.UpdateTopPressureSnapshot();
 
         if (this.Config.EnableDailyLedger && this.State.LastDay.HadSales)
             this.Monitor.Log($"Tracked {this.State.LastDay.SoldItemCount} shipped items across {this.State.LastDay.TrackedStacks} stacks.", LogLevel.Trace);
@@ -49,6 +54,7 @@ public sealed class DailyLedgerService
             $"tracked base prices={this.State.BasePricesByItemId.Count}, " +
             $"market pressure entries={this.State.MarketPressureByItemId.Count}, " +
             $"last sold items={this.State.LastDay.SoldItemCount}, " +
+            $"subsidy={this.State.SeasonalSubsidyTaxReduction:P0}, " +
             $"pending taxes={this.State.TaxLedger.PendingTaxes}g.";
     }
 

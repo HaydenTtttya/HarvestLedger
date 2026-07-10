@@ -8,6 +8,7 @@ public enum ItemMarketCategory
     Flower,
     Forage,
     Fish,
+    AnimalProduct,
     ArtisanGoods,
     Cooking,
     Mining,

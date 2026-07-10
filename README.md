@@ -1,19 +1,204 @@
 # Harvest Ledger
 
-Harvest Ledger is a Stardew Valley economy mod built around a simple idea: the farm market should react to what the player produces, without turning the save into a spreadsheet.
+Harvest Ledger is a Stardew Valley economy mod for players who want the farm market to react to what they actually produce. It tracks what you ship, moves prices over time, exposes the state of the market in-game, and adds optional tax and stamina balance systems.
 
-The mod tracks shipped items, applies market pressure to repeated sales, recovers demand over time, collects simple taxes, and keeps a per-save ledger through SMAPI save data.
+The goal is not to bury the player in accounting. The mod keeps the math behind the scenes and gives you a readable ledger when you want to check what is happening.
 
-## Current status
+## What It Does
 
-- SMAPI mod skeleton
-- Per-save ledger state
-- Dynamic price model for regular objects and `Data/Objects`
-- Shipping-bin sales tracking
-- Daily tax assessment and next-morning collection
-- Tool stamina cost multipliers
-- Basic in-game ledger menu
-- Generic Mod Config Menu support
-- Configurable category multipliers and pressure/recovery settings
+### Dynamic prices
 
-The next pass should focus on playtest tuning, large content-pack compatibility, and a richer ledger UI.
+Harvest Ledger edits `Data/Objects`, so price changes flow through the normal Stardew Valley item price path instead of living only inside this mod's UI.
+
+Repeatedly shipping the same item increases market pressure for that item. As pressure rises, the sale price is pushed down within the configured minimum and maximum multipliers. Demand recovers over time, and recovery is better when yesterday's sales were more diverse.
+
+Prices are affected by:
+
+- item category base multipliers
+- repeated sales pressure
+- player skill levels
+- seasonal conditions
+- short regional demand events
+- crop rotation bonuses
+- farm income concentration
+- processing chains where artisan goods can be traced back to raw ingredients
+
+The default tuning is intentionally conservative. It should make monoculture and single-product spam less dominant without making ordinary farming feel punished every day.
+
+### Product and machine output resolution
+
+The mod resolves products through Stardew Valley's own data where possible.
+
+- Seeds and fruit tree saplings use `Data/Crops` and `Data/FruitTrees`.
+- Machine output checks use `Data/Machines` and `MachineDataUtility`.
+- Preserved and processed items keep their source ingredient when the game exposes it, so wine, jelly, roe, smoked fish, dried goods, and similar items can be tracked more accurately.
+- Machine rule lookups are indexed by required item IDs and context tags, so the ledger does not need to brute-force every machine rule on every display pass.
+
+Some custom machine rules use C# output delegates which cannot be safely inspected ahead of time. Those are skipped rather than guessed.
+
+### In-game ledger
+
+Press `F8` by default to open the ledger menu.
+
+The ledger shows:
+
+- current dynamic price state
+- yesterday's shipped item count and shipping income
+- the most pressured item
+- pending taxes
+- active or upcoming demand events
+- subsidy and crop rotation policy state
+- base price, current price, pressure, and trend per item
+- filters for farm products, fish, mine goods, and all tracked prices
+- search across item names, categories, IDs, and processed-ingredient names
+
+The ledger uses actual item icons where possible and includes generated rows for likely processed goods, so artisan outputs are visible even before every variant has been shipped.
+
+### Daily ledger tracking
+
+At the end of each day, Harvest Ledger reads the shipping bin and records:
+
+- shipped stacks and item counts
+- gross shipping income
+- sold item categories
+- last sold quality
+- last sold unit prices
+- market pressure changes
+- main income category and concentration
+
+This data is saved per save file through SMAPI save data.
+
+### Regional demand and subsidies
+
+Each season can generate demand events such as town festivals, pantry restocks, mine supply orders, or fish market shortages. These events temporarily lift related categories.
+
+The mod also chooses a seasonal subsidized crop. Keeping that crop meaningfully present in your farm plan can improve demand recovery and reduce taxes over time.
+
+### Taxes
+
+The optional tax system assesses taxes at day end and collects them the next morning.
+
+It currently includes:
+
+- bracketed income tax
+- land use tax based on tilled farm tiles
+- automation tax based on common processing machines
+- subsidy reductions
+- unpaid-tax penalties when the player cannot cover the bill
+
+Tax values are configurable.
+
+### Stamina balancing
+
+The optional stamina system can add extra costs after tool use. The defaults are mild and configurable:
+
+- axe
+- pickaxe
+- hoe
+- watering can
+- fishing rod
+- scythe
+- weapons
+
+Set a rate or cost to `0` to disable that tool's extra cost.
+
+## Compatibility
+
+Harvest Ledger is built for Stardew Valley 1.6 and SMAPI 4.
+
+The dynamic price path is intentionally compatible with display mods that read normal Stardew item prices. For example, UIInfoSuite-style price displays that create items and call `sellToStorePrice()` should see Harvest Ledger's adjusted prices for normal objects and real item instances.
+
+There are still limits:
+
+- Per-ingredient processed prices are more accurate inside Harvest Ledger than in mods that only know the base object ID.
+- Machine outputs implemented through non-inspectable C# delegates are skipped in generated ledger rows.
+- Mods that replace the game's sale-price calculation may stack with Harvest Ledger depending on load order and implementation.
+
+Generic Mod Config Menu is optional. If installed, it provides an in-game configuration screen for the main systems and common tuning values.
+
+## Installation
+
+1. Install SMAPI.
+2. Download or build `HarvestLedger 0.2.0.zip`.
+3. Unzip it into your Stardew Valley `Mods` folder.
+4. Launch the game through SMAPI.
+5. Open a save and press `F8` to open the ledger.
+
+The mod folder should contain:
+
+```text
+HarvestLedger/
+  HarvestLedger.dll
+  manifest.json
+  config.json
+  i18n/
+  icon/
+```
+
+## Configuration
+
+The default `config.json` enables all major systems:
+
+```json
+{
+  "EnableDynamicPricing": true,
+  "EnableDailyLedger": true,
+  "EnableStaminaBalance": true,
+  "EnableTaxSystem": true,
+  "MenuKey": "F8"
+}
+```
+
+Important dynamic pricing settings:
+
+- `MinimumPriceMultiplier`: lowest price floor after pressure.
+- `MaximumPriceMultiplier`: highest price ceiling after bonuses.
+- `SaturationPoint`: how many adjusted sales it takes for pressure to become noticeable.
+- `MaxPenalty`: maximum pressure impact on price.
+- `BaseRecovery`: daily pressure recovery.
+- `MaxDiversityRecovery`: extra recovery from diverse sales.
+- `SubsidyRecovery`: extra recovery when the seasonal subsidy condition is met.
+- `ExposurePenaltyCap`: penalty cap for relying too heavily on one income category.
+- `MaxProcessingTraceBonus`: bonus for processed goods tied to raw production history.
+- `ExemptItemIds`: object IDs that Harvest Ledger should leave alone.
+
+Taxes and stamina have their own sections. Most values are safe to tune mid-save; if you make large pricing changes, let a day pass so pressure and ledger summaries settle naturally.
+
+## Development
+
+Build from the repository root:
+
+```bash
+dotnet build -c Release
+```
+
+The project uses `Pathoschild.Stardew.ModBuildConfig`, so a release zip is generated under:
+
+```text
+bin/Release/net6.0/
+```
+
+Main code areas:
+
+- `ModEntry.cs`: SMAPI event wiring, config reload, menu hotkey.
+- `Framework/Services/DynamicPricingService.cs`: price calculation, pressure, demand, crop rotation, processed-good tracing.
+- `Framework/Services/ProductResolver.cs`: crop, fruit tree, and machine-output resolution.
+- `Framework/Services/DailyLedgerService.cs`: shipping-bin day close.
+- `Framework/Services/TaxService.cs`: tax assessment and collection.
+- `Framework/Services/StaminaService.cs`: extra stamina costs.
+- `Framework/Menus/LedgerMenu.cs`: in-game ledger UI.
+- `Framework/Integrations/GenericModConfigMenuIntegration.cs`: GMCM options.
+
+## Current Status
+
+Harvest Ledger is playable and builds cleanly, but the economy numbers still need real save-file playtesting. The systems are intentionally modular so tuning can happen without rewriting the whole mod.
+
+Good next areas to test:
+
+- late-game artisan farms
+- large modded crop packs
+- saves with many machines
+- multiplayer behavior
+- whether tax pressure feels interesting or just noisy
+
+Bug reports are most useful when they include the SMAPI log, the save season/day, the relevant config values, and what was shipped the previous day.

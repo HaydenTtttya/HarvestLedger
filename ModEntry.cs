@@ -2,10 +2,12 @@ using HarvestLedger.Framework;
 using HarvestLedger.Framework.Integrations;
 using HarvestLedger.Framework.Menus;
 using HarvestLedger.Framework.Services;
+using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
 using StardewValley;
+using StardewValley.Menus;
 
 namespace HarvestLedger;
 
@@ -19,6 +21,7 @@ public sealed class ModEntry : Mod
     private DailyLedgerService DailyLedger = null!;
     private TaxService Taxes = null!;
     private StaminaService Stamina = null!;
+    private Texture2D? IconAtlas;
 
     public override void Entry(IModHelper helper)
     {
@@ -56,8 +59,13 @@ public sealed class ModEntry : Mod
 
         if (this.Config.EnableDynamicPricing)
         {
+            bool newSeason = this.DynamicPricing.EnsureSeasonState();
+            if (newSeason && SDate.Now().Day == 1)
+                Game1.addHUDMessage(new HUDMessage(this.GetSeasonStartMessage(), HUDMessage.newQuest_type));
+
             this.Helper.GameContent.InvalidateCache("Data/Objects");
             this.DynamicPricing.ApplyToPlayerInventory();
+            this.DynamicPricing.ApplyToWorldItems();
         }
     }
 
@@ -74,9 +82,14 @@ public sealed class ModEntry : Mod
 
         if (this.Config.EnableDynamicPricing)
         {
+            bool newSeason = this.DynamicPricing.EnsureSeasonState();
+            if (newSeason)
+                Game1.addHUDMessage(new HUDMessage(this.GetSeasonStartMessage(), HUDMessage.newQuest_type));
+
             this.DynamicPricing.RecoverMarketDemand();
             this.Helper.GameContent.InvalidateCache("Data/Objects");
             int updated = this.DynamicPricing.ApplyToPlayerInventory();
+            updated += this.DynamicPricing.ApplyToWorldItems();
             this.State.LastDay.UpdatedStacks = updated;
 
             if (this.Config.EnableDailyLedger && this.State.LastDay.HadSales)
@@ -103,6 +116,9 @@ public sealed class ModEntry : Mod
 
     private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
     {
+        if (e.NameWithoutLocale.IsEquivalentTo("Data/Machines"))
+            ProductResolver.InvalidateMachineCache();
+
         if (!this.Config.EnableDynamicPricing)
             return;
 
@@ -112,10 +128,14 @@ public sealed class ModEntry : Mod
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
-        if (!Context.IsWorldReady || !this.Config.EnableStaminaBalance)
+        if (!Context.IsWorldReady)
             return;
 
-        this.Stamina.Update();
+        if (this.Config.EnableDynamicPricing && e.IsMultipleOf(60))
+            this.DynamicPricing.ApplyToCurrentLocationItems();
+
+        if (this.Config.EnableStaminaBalance)
+            this.Stamina.Update();
     }
 
     private void OnInventoryChanged(object? sender, InventoryChangedEventArgs e)
@@ -123,7 +143,11 @@ public sealed class ModEntry : Mod
         if (!Context.IsWorldReady || !this.Config.EnableDynamicPricing || !e.IsLocalPlayer)
             return;
 
+        foreach (Item? item in e.Added)
+            this.DynamicPricing.TrackProducedItem(item);
+
         this.DynamicPricing.ApplyToItems(e.Added);
+        this.DynamicPricing.ApplyToCurrentLocationItems();
     }
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
@@ -131,7 +155,7 @@ public sealed class ModEntry : Mod
         if (!Context.IsWorldReady || !this.Config.MenuKey.JustPressed())
             return;
 
-        Game1.activeClickableMenu = new LedgerMenu(this.State, this.Config);
+        Game1.activeClickableMenu = new LedgerMenu(this.State, this.Config, this.LoadIconAtlas(), this.Helper.Translation);
     }
 
     private void ResetConfig()
@@ -153,5 +177,45 @@ public sealed class ModEntry : Mod
         this.DailyLedger = new DailyLedgerService(this.Monitor, this.Config, this.State, this.DynamicPricing);
         this.Taxes = new TaxService(this.Monitor, this.Config, this.State);
         this.Stamina = new StaminaService(this.Monitor, this.Config.Stamina);
+    }
+
+    private Texture2D? LoadIconAtlas()
+    {
+        if (this.IconAtlas is not null)
+            return this.IconAtlas;
+
+        try
+        {
+            this.IconAtlas = this.Helper.ModContent.Load<Texture2D>("icon/icon_pixel_art.png");
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Could not load ledger icon atlas: {ex.Message}", LogLevel.Trace);
+        }
+
+        return this.IconAtlas;
+    }
+
+    private string GetSeasonStartMessage()
+    {
+        return string.IsNullOrWhiteSpace(this.State.SubsidizedCropItemId)
+            ? this.Helper.Translation.Get("message.season.no-subsidy")
+            : this.Helper.Translation.Get("message.season.subsidy-crop", new { crop = GetLocalizedItemName(this.State.SubsidizedCropItemId, this.State.SubsidizedCropName) });
+    }
+
+    private static string GetLocalizedItemName(string itemId, string fallback)
+    {
+        try
+        {
+            Item item = ItemRegistry.Create(itemId, 1, 0, true);
+            if (!string.IsNullOrWhiteSpace(item.DisplayName))
+                return item.DisplayName;
+        }
+        catch
+        {
+            // Fall through to the stored name.
+        }
+
+        return string.IsNullOrWhiteSpace(fallback) ? itemId : fallback;
     }
 }

@@ -2,9 +2,12 @@ using HarvestLedger.Framework.Services;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using StardewModdingAPI;
 using StardewValley;
 using StardewValley.GameData.Objects;
+using StardewValley.ItemTypeDefinitions;
 using StardewValley.Menus;
+using SObject = StardewValley.Object;
 
 namespace HarvestLedger.Framework.Menus;
 
@@ -13,17 +16,20 @@ public sealed class LedgerMenu : IClickableMenu
     private static readonly PriceFilter[] FilterOrder = [PriceFilter.Farm, PriceFilter.Fish, PriceFilter.Mine, PriceFilter.All];
 
     private const int SidePadding = 36;
-    private const int HeaderHeight = 128;
-    private const int FilterHeight = 56;
+    private const int HeaderHeight = 136;
+    private const int PolicyPanelHeight = 156;
+    private const int FilterHeight = 54;
     private const int TableHeaderHeight = 34;
     private const int RowHeight = 54;
     private const int FooterHeight = 42;
     private const int ScrollbarWidth = 14;
     private const int ScrollbarGap = 10;
-    private const float LabelTextScale = 0.78f;
 
     private readonly LedgerSaveData State;
     private readonly ModConfig Config;
+    private readonly ITranslationHelper Translation;
+    private readonly Texture2D? IconAtlas;
+    private readonly Rectangle[] IconSources;
     private readonly List<PriceRow> Rows;
     private readonly Dictionary<PriceFilter, Rectangle> FilterBounds = new();
     private readonly TextBox SearchBox;
@@ -40,7 +46,7 @@ public sealed class LedgerMenu : IClickableMenu
     private int Page;
     private string LastSearchText = "";
 
-    public LedgerMenu(LedgerSaveData state, ModConfig config)
+    public LedgerMenu(LedgerSaveData state, ModConfig config, Texture2D? iconAtlas, ITranslationHelper translation)
         : base(
             x: Math.Max(0, (Game1.uiViewport.Width - GetMenuWidth()) / 2),
             y: Math.Max(0, (Game1.uiViewport.Height - GetMenuHeight()) / 2),
@@ -50,7 +56,10 @@ public sealed class LedgerMenu : IClickableMenu
     {
         this.State = state;
         this.Config = config;
-        this.Rows = BuildPriceRows(state, config);
+        this.Translation = translation;
+        this.IconAtlas = iconAtlas;
+        this.IconSources = BuildIconSources(iconAtlas);
+        this.Rows = BuildPriceRows(state, config, translation);
         this.SearchBox = new TextBox(Game1.content.Load<Texture2D>("LooseSprites\\textBox"), Game1.staminaRect, Game1.smallFont, Game1.textColor)
         {
             Height = 44,
@@ -197,6 +206,7 @@ public sealed class LedgerMenu : IClickableMenu
             Color.White);
 
         this.DrawHeader(b);
+        this.DrawPolicyPanels(b);
         this.DrawFilters(b);
         this.DrawPriceTable(b);
         this.DrawFooter(b);
@@ -210,20 +220,68 @@ public sealed class LedgerMenu : IClickableMenu
         int x = this.xPositionOnScreen + SidePadding;
         int y = this.yPositionOnScreen + 30;
 
-        Utility.drawTextWithShadow(b, "Harvest Ledger", Game1.dialogueFont, new Vector2(x, y), Game1.textColor);
+        this.DrawLedgerIcon(b, LedgerIcon.MarketPressureGauge, x, y + 2, 44);
+        Utility.drawTextWithShadow(b, this.T("menu.title"), Game1.dialogueFont, new Vector2(x + 58, y), Game1.textColor);
 
         TaxLedger taxes = this.State.TaxLedger;
         int taxesDue = taxes.PendingTaxes + taxes.UnpaidTaxes;
+        string topPressure = string.IsNullOrWhiteSpace(this.State.LastDay.TopPressuredItemId)
+            ? this.T("menu.status.top-pressure-none")
+            : this.T("menu.status.top-pressure", new { item = GetDisplayNameFromItemId(this.State.LastDay.TopPressuredItemId), pressure = this.State.LastDay.TopPressuredItemPressure.ToString("P0") });
         string[] statusItems =
         [
-            $"Prices: {(this.Config.EnableDynamicPricing ? "On" : "Off")}",
-            $"Sold: {this.State.LastDay.SoldItemCount} / {this.State.LastDay.GrossShippingIncome}g",
-            $"Pressure: {this.State.LastDay.MarketPressure:P0}",
-            this.Config.EnableTaxSystem ? $"Tax: {taxesDue}g due" : "Tax: Off"
+            this.T("menu.status.prices", new { state = this.T(this.Config.EnableDynamicPricing ? "menu.state.on" : "menu.state.off") }),
+            this.T("menu.status.sold", new { count = this.State.LastDay.SoldItemCount, gold = this.State.LastDay.GrossShippingIncome }),
+            topPressure,
+            this.Config.EnableTaxSystem
+                ? this.T("menu.status.tax-due", new { gold = taxesDue })
+                : this.T("menu.status.tax-off")
         ];
 
         this.DrawStatusLine(b, statusItems, x, y + 48, this.width - (SidePadding * 2) - 36);
-        this.DrawSearchBox(b, x, y + 78);
+        this.DrawSearchBox(b, x, y + 76);
+    }
+
+    private void DrawPolicyPanels(SpriteBatch b)
+    {
+        int left = this.xPositionOnScreen + SidePadding;
+        int top = this.yPositionOnScreen + HeaderHeight + 10;
+        int gap = 14;
+        int panelWidth = (this.width - (SidePadding * 2) - gap) / 2;
+        int right = left + panelWidth + gap;
+
+        DrawMutedBox(b, left, top, panelWidth, PolicyPanelHeight);
+        DrawMutedBox(b, right, top, panelWidth, PolicyPanelHeight);
+
+        this.DrawLedgerIcon(b, LedgerIcon.RegionalDemandNoticeBoard, left + 14, top + 8, 28);
+        Utility.drawTextWithShadow(b, this.T("menu.demand.title"), Game1.smallFont, new Vector2(left + 50, top + 10), Game1.textColor);
+        Utility.drawTextWithShadow(b, this.T("menu.policy.title"), Game1.smallFont, new Vector2(right + 14, top + 10), Game1.textColor);
+
+        string[] demandLines = this.GetDemandLines(panelWidth - 28);
+        for (int i = 0; i < demandLines.Length; i++)
+            Utility.drawTextWithShadow(b, demandLines[i], Game1.smallFont, new Vector2(left + 14, top + 40 + (i * 22)), Game1.textColor * 0.88f);
+
+        string subsidyCrop = string.IsNullOrWhiteSpace(this.State.SubsidizedCropItemId)
+            ? this.T("menu.none")
+            : GetLocalizedObjectName(this.State.SubsidizedCropItemId);
+        string progress = this.State.LastDay.TotalCropCount <= 0
+            ? "0 / 0"
+            : $"{this.State.LastDay.SubsidizedCropCount} / {this.State.LastDay.TotalCropCount}";
+        string mainCategory = this.GetDisplayCategoryFromSavedValue(this.State.LastDay.MainIncomeCategory);
+        string[] policyLines =
+        [
+            this.T("menu.policy.subsidy", new { crop = subsidyCrop, progress }),
+            this.T("menu.policy.reduction", new { percent = this.State.SeasonalSubsidyTaxReduction.ToString("P0") }),
+            this.T("menu.policy.exposure", new { state = this.GetExposureStateText(this.State.ExposureScore) }),
+            this.T("menu.policy.main-income", new { category = mainCategory, percent = this.State.LastDay.MainIncomeCategoryShare.ToString("P0") }),
+            this.T("menu.policy.recovery", new { percent = this.State.LastRecoveryRate.ToString("P0") })
+        ];
+
+        for (int i = 0; i < policyLines.Length; i++)
+        {
+            int lineY = top + 38 + (i * 22);
+            Utility.drawTextWithShadow(b, FitText(policyLines[i], Game1.smallFont, panelWidth - 28), Game1.smallFont, new Vector2(right + 14, lineY), Game1.textColor * 0.88f);
+        }
     }
 
     private void DrawFilters(SpriteBatch b)
@@ -237,7 +295,7 @@ public sealed class LedgerMenu : IClickableMenu
             Color tint = selected ? Color.White : Color.White * 0.72f;
             IClickableMenu.drawTextureBox(b, Game1.menuTexture, new Rectangle(0, 256, 60, 60), bounds.X, bounds.Y, bounds.Width, bounds.Height, tint);
 
-            string label = FitText(GetFilterLabel(filter), Game1.smallFont, bounds.Width - 14);
+            string label = FitText(this.GetFilterLabel(filter), Game1.smallFont, bounds.Width - 14);
             Vector2 size = Game1.smallFont.MeasureString(label);
             Color color = selected ? Game1.textColor : Game1.unselectedOptionColor;
             Utility.drawTextWithShadow(
@@ -266,24 +324,25 @@ public sealed class LedgerMenu : IClickableMenu
 
         DrawMutedBox(b, left, top, tableWidth, tableHeight);
 
+        bool roomyColumns = tableWidth >= 760;
         int iconX = left + 18;
         int nameX = left + 78;
-        int pressureX = contentRight - 110;
-        int currentX = pressureX - 110;
-        int baseX = currentX - 96;
+        int pressureX = contentRight - (roomyColumns ? 124 : 112);
+        int currentX = pressureX - (roomyColumns ? 136 : 110);
+        int baseX = currentX - (roomyColumns ? 128 : 98);
         int nameWidth = Math.Max(80, baseX - nameX - 14);
 
-        this.DrawColumnHeader(b, "Item", nameX, top + 8);
-        this.DrawColumnHeader(b, "Base", baseX, top + 8);
-        this.DrawColumnHeader(b, "Now", currentX, top + 8);
-        this.DrawColumnHeader(b, "Pressure", pressureX, top + 8);
+        this.DrawColumnHeader(b, this.T("menu.table.item"), nameX, top + 8);
+        this.DrawColumnHeader(b, this.T("menu.table.base"), baseX, top + 8);
+        this.DrawColumnHeader(b, this.T("menu.table.now"), currentX, top + 8);
+        this.DrawColumnHeader(b, this.T("menu.table.pressure"), pressureX, top + 8);
         this.DrawScrollbar(b, right - ScrollbarWidth, top + TableHeaderHeight + 4, tableHeight - TableHeaderHeight - 8, visibleRows.Count, rowsPerPage);
 
         if (visibleRows.Count == 0)
         {
             string empty = this.Rows.Count == 0
-                ? "No tracked prices yet. Open a save with dynamic pricing enabled to populate the ledger."
-                : "No items match this view.";
+                ? this.T("menu.empty.no-tracked")
+                : this.T("menu.empty.no-match");
             Utility.drawTextWithShadow(b, Game1.parseText(empty, Game1.smallFont, tableWidth - 40), Game1.smallFont, new Vector2(left + 20, top + 64), Game1.textColor);
             return;
         }
@@ -301,11 +360,13 @@ public sealed class LedgerMenu : IClickableMenu
             row.Icon?.drawInMenu(b, new Vector2(iconX, rowTop + 1), 0.68f, 1f, 0.88f, StackDrawType.Hide, Color.White, false);
 
             string name = FitText(row.DisplayName, Game1.smallFont, nameWidth);
-            string category = FitText(row.DisplayCategory, Game1.smallFont, LabelTextScale, nameWidth);
+            string category = FitText(row.DisplayCategory, Game1.smallFont, nameWidth);
             Utility.drawTextWithShadow(b, name, Game1.smallFont, new Vector2(nameX, rowTop + 8), Game1.textColor);
-            DrawScaledTextWithShadow(b, category, Game1.smallFont, new Vector2(nameX, rowTop + 32), Game1.textColor * 0.72f, LabelTextScale);
+            Utility.drawTextWithShadow(b, category, Game1.smallFont, new Vector2(nameX, rowTop + 31), Game1.textColor * 0.72f);
 
             Utility.drawTextWithShadow(b, $"{row.BasePrice}g", Game1.smallFont, new Vector2(baseX, rowTop + 14), Game1.textColor);
+            if (row.TrendIcon is not null)
+                this.DrawLedgerIcon(b, row.TrendIcon.Value, currentX - 32, rowTop + 15, 24);
             Utility.drawTextWithShadow(b, $"{row.CurrentPrice}g", Game1.smallFont, new Vector2(currentX, rowTop + 14), GetPriceColor(row));
             Utility.drawTextWithShadow(b, row.PressureText, Game1.smallFont, new Vector2(pressureX, rowTop + 14), Game1.textColor);
 
@@ -317,12 +378,12 @@ public sealed class LedgerMenu : IClickableMenu
     {
         IReadOnlyList<PriceRow> visibleRows = this.GetVisibleRows();
         int maxPage = this.GetMaxPage(visibleRows.Count);
-        int y = this.yPositionOnScreen + this.height - FooterHeight - 16;
+        int y = this.yPositionOnScreen + this.height - FooterHeight - 6;
         int centerX = this.xPositionOnScreen + (this.width / 2);
 
         string pageText = visibleRows.Count == 0
-            ? "0 items"
-            : $"{visibleRows.Count} items   page {this.Page + 1} / {maxPage + 1}";
+            ? this.T("menu.footer.no-items")
+            : this.T("menu.footer.items", new { count = visibleRows.Count, page = this.Page + 1, maxPage = maxPage + 1 });
         Vector2 pageSize = Game1.smallFont.MeasureString(pageText);
         Utility.drawTextWithShadow(b, pageText, Game1.smallFont, new Vector2(centerX - (pageSize.X / 2), y + 10), Game1.textColor);
 
@@ -346,7 +407,7 @@ public sealed class LedgerMenu : IClickableMenu
 
     private void DrawColumnHeader(SpriteBatch b, string text, int x, int y)
     {
-        DrawScaledTextWithShadow(b, text, Game1.smallFont, new Vector2(x, y), Game1.textColor * 0.72f, LabelTextScale);
+        Utility.drawTextWithShadow(b, text, Game1.smallFont, new Vector2(x, y), Game1.textColor * 0.72f);
     }
 
     private void DrawStatusLine(SpriteBatch b, IReadOnlyList<string> items, int x, int y, int maxWidth)
@@ -372,7 +433,7 @@ public sealed class LedgerMenu : IClickableMenu
 
     private void DrawSearchBox(SpriteBatch b, int x, int y)
     {
-        string label = "Search";
+        string label = this.T("menu.search.label");
         Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(x, y + 8), Game1.textColor * 0.86f);
 
         int boxX = x + 84;
@@ -389,7 +450,7 @@ public sealed class LedgerMenu : IClickableMenu
         {
             Utility.drawTextWithShadow(
                 b,
-                "Chinese or English item name",
+                this.T("menu.search.placeholder"),
                 Game1.smallFont,
                 new Vector2(this.SearchBox.X + 16, this.SearchBox.Y + 10),
                 Game1.textColor * 0.48f);
@@ -492,7 +553,81 @@ public sealed class LedgerMenu : IClickableMenu
         int available = Game1.uiViewport.Height - 24;
         return available < 420
             ? Math.Max(320, available)
-            : Math.Min(640, available);
+            : Math.Min(780, available);
+    }
+
+    private string[] GetDemandLines(int maxWidth)
+    {
+        int day = Game1.dayOfMonth;
+        List<string> lines = new();
+        foreach (DemandEventState demandEvent in this.State.DemandEvents.Where(demandEvent => demandEvent.IsActive(day)).OrderBy(demandEvent => demandEvent.StartDay).Take(2))
+        {
+            string categories = string.Join(", ", demandEvent.CategoryBonuses.Select(pair => $"{GetDisplayCategory(this.Translation, pair.Key)} +{pair.Value:P0}"));
+            lines.Add(FitText(this.GetDemandEventName(demandEvent), Game1.smallFont, maxWidth));
+            lines.Add(FitText(this.T("menu.demand.remaining", new { categories, days = demandEvent.GetRemainingDays(day) }), Game1.smallFont, maxWidth));
+        }
+
+        if (lines.Count == 0)
+        {
+            DemandEventState? next = this.State.DemandEvents
+                .Where(demandEvent => demandEvent.StartDay > day)
+                .OrderBy(demandEvent => demandEvent.StartDay)
+                .FirstOrDefault();
+
+            if (next is null)
+                lines.Add(this.T("menu.demand.no-active"));
+            else
+            {
+                lines.Add(FitText(this.T("menu.demand.next", new { name = this.GetDemandEventName(next) }), Game1.smallFont, maxWidth));
+                lines.Add(FitText(this.T("menu.demand.starts", new { day = next.StartDay }), Game1.smallFont, maxWidth));
+            }
+        }
+
+        while (lines.Count < 4)
+            lines.Add("");
+
+        return lines.Take(4).ToArray();
+    }
+
+    private string GetExposureStateText(int exposureScore)
+    {
+        string key = exposureScore switch
+        {
+            <= 2 => "menu.exposure.stable",
+            <= 6 => "menu.exposure.watch",
+            <= 13 => "menu.exposure.exposed",
+            _ => "menu.exposure.concentrated"
+        };
+        return this.T(key);
+    }
+
+    private string GetDisplayCategoryFromSavedValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return this.T("menu.none");
+
+        return Enum.TryParse(value, out ItemMarketCategory category)
+            ? GetDisplayCategory(this.Translation, category)
+            : value;
+    }
+
+    private string GetDemandEventName(DemandEventState demandEvent)
+    {
+        string key = $"menu.demand-event.{demandEvent.Id}";
+        string translated = this.T(key);
+        return string.Equals(translated, key, StringComparison.Ordinal)
+            ? demandEvent.Name
+            : translated;
+    }
+
+    private string T(string key, object? tokens = null)
+    {
+        return T(this.Translation, key, tokens);
+    }
+
+    private static string T(ITranslationHelper translation, string key, object? tokens = null)
+    {
+        return translation.Get(key, tokens).ToString();
     }
 
     private static string FitText(string text, SpriteFont font, int maxWidth)
@@ -508,29 +643,84 @@ public sealed class LedgerMenu : IClickableMenu
         return trimmed.Length == 0 ? ellipsis : trimmed + ellipsis;
     }
 
-    private static string FitText(string text, SpriteFont font, float scale, int maxWidth)
+    private void DrawLedgerIcon(SpriteBatch b, LedgerIcon icon, int x, int y, int size)
     {
-        if (font.MeasureString(text).X * scale <= maxWidth)
-            return text;
+        if (this.IconAtlas is null || this.IconAtlas.Width < 4 || this.IconAtlas.Height < 4 || size <= 0)
+            return;
 
-        const string ellipsis = "...";
-        string trimmed = text;
-        while (trimmed.Length > 0 && font.MeasureString(trimmed + ellipsis).X * scale > maxWidth)
-            trimmed = trimmed[..^1];
-
-        return trimmed.Length == 0 ? ellipsis : trimmed + ellipsis;
+        int cellWidth = this.IconAtlas.Width / 4;
+        int cellHeight = this.IconAtlas.Height / 4;
+        int index = (int)icon;
+        Rectangle source = index >= 0 && index < this.IconSources.Length && this.IconSources[index].Width > 0 && this.IconSources[index].Height > 0
+            ? this.IconSources[index]
+            : new Rectangle((index % 4) * cellWidth, (index / 4) * cellHeight, cellWidth, cellHeight);
+        b.Draw(this.IconAtlas, new Rectangle(x, y, size, size), source, Color.White);
     }
 
-    private static void DrawScaledTextWithShadow(SpriteBatch b, string text, SpriteFont font, Vector2 position, Color color, float scale)
+    private static Rectangle[] BuildIconSources(Texture2D? atlas)
     {
-        b.DrawString(font, text, position + Vector2.One, Color.Black * 0.35f, 0f, Vector2.Zero, scale, SpriteEffects.None, 0.86f);
-        b.DrawString(font, text, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 0.87f);
+        Rectangle[] sources = new Rectangle[16];
+        if (atlas is null || atlas.Width < 4 || atlas.Height < 4)
+            return sources;
+
+        int cellWidth = atlas.Width / 4;
+        int cellHeight = atlas.Height / 4;
+        for (int i = 0; i < sources.Length; i++)
+            sources[i] = new Rectangle((i % 4) * cellWidth, (i / 4) * cellHeight, cellWidth, cellHeight);
+
+        try
+        {
+            Color[] pixels = new Color[atlas.Width * atlas.Height];
+            atlas.GetData(pixels);
+
+            for (int index = 0; index < sources.Length; index++)
+            {
+                int cellX = (index % 4) * cellWidth;
+                int cellY = (index / 4) * cellHeight;
+                int minX = cellWidth;
+                int minY = cellHeight;
+                int maxX = -1;
+                int maxY = -1;
+
+                for (int y = 0; y < cellHeight; y++)
+                {
+                    int sourceY = cellY + y;
+                    for (int x = 0; x < cellWidth; x++)
+                    {
+                        int sourceX = cellX + x;
+                        if (pixels[(sourceY * atlas.Width) + sourceX].A <= 8)
+                            continue;
+
+                        minX = Math.Min(minX, x);
+                        minY = Math.Min(minY, y);
+                        maxX = Math.Max(maxX, x);
+                        maxY = Math.Max(maxY, y);
+                    }
+                }
+
+                if (maxX < minX || maxY < minY)
+                    continue;
+
+                int padding = Math.Max(2, Math.Min(cellWidth, cellHeight) / 32);
+                int left = Math.Max(0, minX - padding);
+                int top = Math.Max(0, minY - padding);
+                int right = Math.Min(cellWidth - 1, maxX + padding);
+                int bottom = Math.Min(cellHeight - 1, maxY + padding);
+                sources[index] = new Rectangle(cellX + left, cellY + top, right - left + 1, bottom - top + 1);
+            }
+        }
+        catch
+        {
+            // Some texture implementations don't allow GetData after loading; the full cells still render correctly.
+        }
+
+        return sources;
     }
 
     private void UpdateButtonBounds()
     {
         int x = this.xPositionOnScreen + SidePadding;
-        int y = this.yPositionOnScreen + HeaderHeight + 34;
+        int y = this.yPositionOnScreen + HeaderHeight + PolicyPanelHeight + 26;
         int gap = 10;
         int buttonHeight = 46;
         int availableWidth = this.width - (SidePadding * 2);
@@ -542,20 +732,20 @@ public sealed class LedgerMenu : IClickableMenu
             this.FilterBounds[filter] = new Rectangle(x + ((buttonWidth + gap) * i), y, buttonWidth, buttonHeight);
         }
 
-        int footerY = this.yPositionOnScreen + this.height - FooterHeight - 10;
+        int footerY = this.yPositionOnScreen + this.height - FooterHeight - 6;
         this.PreviousPageBounds = new Rectangle(this.xPositionOnScreen + this.width - SidePadding - 116, footerY, 48, 42);
         this.NextPageBounds = new Rectangle(this.xPositionOnScreen + this.width - SidePadding - 58, footerY, 48, 42);
     }
 
     private int GetTableTop()
     {
-        return this.yPositionOnScreen + HeaderHeight + FilterHeight + 48;
+        return this.yPositionOnScreen + HeaderHeight + PolicyPanelHeight + FilterHeight + 22;
     }
 
     private int GetRowsPerPage()
     {
         int tableTop = this.GetTableTop();
-        int footerTop = this.yPositionOnScreen + this.height - FooterHeight - 22;
+        int footerTop = this.yPositionOnScreen + this.height - FooterHeight - 6;
         return Math.Max(1, (footerTop - tableTop - TableHeaderHeight) / RowHeight);
     }
 
@@ -583,21 +773,22 @@ public sealed class LedgerMenu : IClickableMenu
         if (query.Length == 0)
             return rows.ToList();
 
-        string[] terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string[] terms = SearchTextUtility.GetQueryTerms(query);
         return rows
-            .Where(row => terms.All(term => row.SearchText.Contains(term, StringComparison.CurrentCultureIgnoreCase)))
+            .Where(row => terms.All(term => row.SearchText.Contains(term, StringComparison.OrdinalIgnoreCase)))
             .ToList();
     }
 
-    private static string GetFilterLabel(PriceFilter filter)
+    private string GetFilterLabel(PriceFilter filter)
     {
-        return filter switch
+        string key = filter switch
         {
-            PriceFilter.Farm => "Crops & goods",
-            PriceFilter.Fish => "Fish",
-            PriceFilter.Mine => "Mine",
-            _ => "All prices"
+            PriceFilter.Farm => "menu.filter.farm",
+            PriceFilter.Fish => "menu.filter.fish",
+            PriceFilter.Mine => "menu.filter.mine",
+            _ => "menu.filter.all"
         };
+        return this.T(key);
     }
 
     private static Color GetPriceColor(PriceRow row)
@@ -611,16 +802,35 @@ public sealed class LedgerMenu : IClickableMenu
         return Game1.textColor;
     }
 
-    private static List<PriceRow> BuildPriceRows(LedgerSaveData state, ModConfig config)
+    private static string GetPressureText(ITranslationHelper translation, double pressureValue, int lastSold)
+    {
+        string pressure = pressureValue <= 0 ? "0%" : pressureValue.ToString("P0");
+        string trend = lastSold > 0
+            ? T(translation, "menu.pressure.sold")
+            : pressureValue > 0
+                ? T(translation, "menu.pressure.recover")
+                : T(translation, "menu.pressure.flat");
+
+        return lastSold > 0
+            ? $"{pressure} {trend} ({lastSold})"
+            : $"{pressure} {trend}";
+    }
+
+    private static List<PriceRow> BuildPriceRows(LedgerSaveData state, ModConfig config, ITranslationHelper translation)
     {
         List<PriceRow> rows = new();
+        HashSet<string> rowIds = new(StringComparer.OrdinalIgnoreCase);
 
         foreach ((string savedItemId, int basePrice) in state.BasePricesByItemId)
         {
             if (basePrice <= 0)
                 continue;
 
-            string rawItemId = GetRawObjectId(savedItemId);
+            string canonicalItemId = GetCanonicalMarketItemId(savedItemId);
+            if (rowIds.Contains(canonicalItemId))
+                continue;
+
+            string rawItemId = GetRawObjectId(canonicalItemId);
             string qualifiedItemId = $"(O){rawItemId}";
             if (config.DynamicPricing.ExemptItemIds.Contains(rawItemId) || config.DynamicPricing.ExemptItemIds.Contains(qualifiedItemId))
                 continue;
@@ -628,35 +838,52 @@ public sealed class LedgerMenu : IClickableMenu
             if (!Game1.objectData.TryGetValue(rawItemId, out ObjectData? objectData))
                 continue;
 
-            Item? icon = TryCreateIcon(qualifiedItemId);
-            string? displayName = icon?.DisplayName;
-            if (string.IsNullOrWhiteSpace(displayName))
-                displayName = objectData.Name ?? rawItemId;
+            int rowBasePrice = !string.Equals(savedItemId, canonicalItemId, StringComparison.OrdinalIgnoreCase)
+                ? state.BasePricesByItemId.GetValueOrDefault(canonicalItemId, objectData.Price)
+                : basePrice;
+            Item? icon = TryCreateDisplayItem(canonicalItemId) ?? TryCreateIcon(qualifiedItemId);
+            string displayName = GetMarketDisplayName(canonicalItemId, objectData, icon);
 
             ItemMarketCategory category = ItemClassifier.GetCategory(objectData);
-            string displayCategory = GetDisplayCategory(objectData, category);
-            int currentPrice = Math.Max(1, objectData.Price);
-            double rawPressure = GetValue(state.MarketPressureByItemId, qualifiedItemId, rawItemId);
-            double pricePressure = Math.Min(0.85, rawPressure * config.DynamicPricing.SalePressurePerItem);
-            int lastSold = GetValue(state.LastDay.SoldByItemId, qualifiedItemId, rawItemId);
-            int lifetimeSold = GetValue(state.LifetimeSoldByItemId, qualifiedItemId, rawItemId);
-            string searchText = string.Join(
-                ' ',
-                new[] { displayName, objectData.Name ?? "", displayCategory, category.ToString(), rawItemId, qualifiedItemId });
+            int displayQuality = GetDisplayQuality(state, savedItemId, canonicalItemId, qualifiedItemId, rawItemId);
+            string displayCategory = AppendQualityLabel(translation, GetDisplayCategory(translation, objectData, category), displayQuality);
+            int currentBasePrice = Math.Max(1, GetCurrentPrice(state, savedItemId, canonicalItemId, qualifiedItemId, rawItemId, objectData.Price));
+            int displayBasePrice = GetSalePriceForDisplay(canonicalItemId, Math.Max(1, rowBasePrice), displayQuality);
+            int currentPrice = GetSalePriceForDisplay(canonicalItemId, currentBasePrice, displayQuality);
+            double rawPressure = state.MarketPressureByItemId.TryGetValue(savedItemId, out double exactPressure)
+                ? exactPressure
+                : GetValue(state.MarketPressureByItemId, canonicalItemId, qualifiedItemId, rawItemId);
+            double pricePressure = Math.Clamp(1 - Math.Exp(-rawPressure / Math.Max(1, config.DynamicPricing.SaturationPoint)), 0, 1);
+            int lastSold = state.LastDay.SoldByItemId.TryGetValue(savedItemId, out int exactLastSold)
+                ? exactLastSold
+                : GetValue(state.LastDay.SoldByItemId, canonicalItemId, qualifiedItemId, rawItemId);
+            int lifetimeSold = state.LifetimeSoldByItemId.TryGetValue(savedItemId, out int exactLifetimeSold)
+                ? exactLifetimeSold
+                : GetValue(state.LifetimeSoldByItemId, canonicalItemId, qualifiedItemId, rawItemId);
+            string searchText = SearchTextUtility.Build(displayName, objectData.Name, GetIngredientSearchText(canonicalItemId), displayCategory, category.ToString(), rawItemId, qualifiedItemId, canonicalItemId, savedItemId);
 
-            rows.Add(new PriceRow(
-                qualifiedItemId,
+            PriceRow row = new(
+                canonicalItemId,
                 displayName,
                 displayCategory,
                 category,
                 IsFarmProduct(objectData, category),
                 searchText,
                 icon,
-                basePrice,
+                displayBasePrice,
                 currentPrice,
                 pricePressure,
                 lastSold,
-                lifetimeSold));
+                lifetimeSold,
+                GetPressureText(translation, pricePressure, lastSold));
+            rows.Add(row);
+            rowIds.Add(canonicalItemId);
+        }
+
+        foreach (PriceRow row in BuildGeneratedProcessedRows(state, config, rowIds, translation))
+        {
+            rows.Add(row);
+            rowIds.Add(row.ItemId);
         }
 
         return rows
@@ -678,43 +905,321 @@ public sealed class LedgerMenu : IClickableMenu
         }
     }
 
-    private static string GetRawObjectId(string itemId)
+    private static IEnumerable<PriceRow> BuildGeneratedProcessedRows(LedgerSaveData state, ModConfig config, ISet<string> existingRowIds, ITranslationHelper translation)
     {
-        return itemId.StartsWith("(O)", StringComparison.Ordinal)
-            ? itemId[3..]
-            : itemId;
+        if (Game1.objectData is null)
+            yield break;
+
+        foreach (SObject outputObject in GetGeneratedMachineOutputs(config))
+        {
+            string marketItemId = GetCanonicalMarketItemId(MarketItemIdentity.GetMarketItemId(outputObject));
+            string baseItemId = MarketItemIdentity.GetBaseItemId(marketItemId);
+            string rawOutputId = GetRawObjectId(marketItemId);
+            if (existingRowIds.Contains(marketItemId) || config.DynamicPricing.ExemptItemIds.Contains(baseItemId) || config.DynamicPricing.ExemptItemIds.Contains(rawOutputId))
+                continue;
+
+            if (!Game1.objectData.TryGetValue(rawOutputId, out ObjectData? outputData))
+                continue;
+
+            int generatedBasePrice = Math.Max(1, outputObject.Price > 0 ? outputObject.Price : outputData.Price);
+            int basePrice = state.BasePricesByItemId.TryGetValue(marketItemId, out int trackedBasePrice) && trackedBasePrice > 0
+                ? trackedBasePrice
+                : generatedBasePrice;
+            int currentBasePrice = state.LastCalculatedPricesByItemId.TryGetValue(marketItemId, out int trackedCurrentPrice) && trackedCurrentPrice > 0
+                ? trackedCurrentPrice
+                : basePrice;
+            double rawPressure = state.MarketPressureByItemId.GetValueOrDefault(marketItemId);
+            double pricePressure = Math.Clamp(1 - Math.Exp(-rawPressure / Math.Max(1, config.DynamicPricing.SaturationPoint)), 0, 1);
+            int lastSold = state.LastDay.SoldByItemId.GetValueOrDefault(marketItemId);
+            int lifetimeSold = state.LifetimeSoldByItemId.GetValueOrDefault(marketItemId);
+            string displayName = !string.IsNullOrWhiteSpace(outputObject.DisplayName)
+                ? outputObject.DisplayName
+                : GetMarketDisplayName(marketItemId, outputData, outputObject);
+            ItemMarketCategory category = ItemClassifier.GetCategory(outputObject);
+            string qualifiedOutputId = $"(O){rawOutputId}";
+            int displayQuality = GetDisplayQuality(state, marketItemId, marketItemId, qualifiedOutputId, rawOutputId);
+            string displayCategory = AppendQualityLabel(translation, GetDisplayCategory(translation, outputData, category), displayQuality);
+            string searchText = SearchTextUtility.Build(displayName, outputData.Name, GetIngredientSearchText(marketItemId), displayCategory, category.ToString(), baseItemId, marketItemId);
+
+            yield return new PriceRow(
+                marketItemId,
+                displayName,
+                displayCategory,
+                category,
+                IsFarmProduct(outputData, category),
+                searchText,
+                outputObject,
+                GetSalePriceForDisplay(marketItemId, basePrice, displayQuality),
+                GetSalePriceForDisplay(marketItemId, currentBasePrice, displayQuality),
+                pricePressure,
+                lastSold,
+                lifetimeSold,
+                GetPressureText(translation, pricePressure, lastSold));
+        }
     }
 
-    private static int GetValue(IReadOnlyDictionary<string, int> values, string qualifiedItemId, string rawItemId)
+    private static IEnumerable<SObject> GetGeneratedMachineOutputs(ModConfig config)
     {
+        if (Game1.objectData is null)
+            yield break;
+
+        HashSet<string> seenOutputIds = new(StringComparer.OrdinalIgnoreCase);
+        foreach ((string rawIngredientId, ObjectData ingredientData) in Game1.objectData)
+        {
+            string ingredientItemId = $"(O){rawIngredientId}";
+            if (ingredientData.Price <= 0 || config.DynamicPricing.ExemptItemIds.Contains(rawIngredientId) || config.DynamicPricing.ExemptItemIds.Contains(ingredientItemId))
+                continue;
+
+            if (!IsPotentialMachineInput(ingredientData))
+                continue;
+
+            if (TryCreateIcon(ingredientItemId) is not SObject inputObject)
+                continue;
+
+            inputObject.Stack = int.MaxValue;
+            foreach (SObject outputObject in ProductResolver.GetMachineOutputsForInput(inputObject))
+            {
+                if (outputObject.bigCraftable.Value || outputObject.Price <= 0)
+                    continue;
+
+                if (!ShouldShowGeneratedOutput(ingredientData, outputObject))
+                    continue;
+
+                string marketItemId = GetCanonicalMarketItemId(MarketItemIdentity.GetMarketItemId(outputObject));
+                if (string.IsNullOrWhiteSpace(marketItemId) || !seenOutputIds.Add(marketItemId))
+                    continue;
+
+                yield return outputObject;
+            }
+        }
+    }
+
+    private static bool IsPotentialMachineInput(ObjectData ingredientData)
+    {
+        ItemMarketCategory category = ItemClassifier.GetCategory(ingredientData);
+        return IsFarmProduct(ingredientData, category)
+            || category is ItemMarketCategory.Forage or ItemMarketCategory.Fish or ItemMarketCategory.Mining or ItemMarketCategory.MonsterLoot;
+    }
+
+    private static bool ShouldShowGeneratedOutput(ObjectData ingredientData, SObject outputObject)
+    {
+        ItemMarketCategory inputCategory = ItemClassifier.GetCategory(ingredientData);
+        ItemMarketCategory outputCategory = ItemClassifier.GetCategory(outputObject);
+        if (MarketItemIdentity.IsProcessedItemId(MarketItemIdentity.GetMarketItemId(outputObject)))
+            return true;
+
+        return outputCategory is ItemMarketCategory.ArtisanGoods or ItemMarketCategory.Cooking
+            || (IsFarmProduct(ingredientData, inputCategory) && outputCategory is ItemMarketCategory.AnimalProduct or ItemMarketCategory.Seed);
+    }
+
+    private static string GetRawObjectId(string itemId)
+    {
+        return MarketItemIdentity.GetRawObjectId(itemId);
+    }
+
+    private static int GetCurrentPrice(LedgerSaveData state, string savedItemId, string canonicalItemId, string qualifiedItemId, string rawItemId, int fallbackPrice)
+    {
+        if (state.LastCalculatedPricesByItemId.TryGetValue(savedItemId, out int exactPrice))
+            return exactPrice;
+
+        return GetValue(state.LastCalculatedPricesByItemId, canonicalItemId, qualifiedItemId, rawItemId) is int price && price > 0
+            ? price
+            : fallbackPrice;
+    }
+
+    private static int GetDisplayQuality(LedgerSaveData state, string savedItemId, string canonicalItemId, string qualifiedItemId, string rawItemId)
+    {
+        if (state.LastSoldQualityByItemId.TryGetValue(savedItemId, out int exactQuality))
+            return NormalizeQuality(exactQuality);
+
+        return NormalizeQuality(GetValue(state.LastSoldQualityByItemId, canonicalItemId, qualifiedItemId, rawItemId));
+    }
+
+    private static int GetSalePriceForDisplay(string marketItemId, int unitPrice, int quality)
+    {
+        if (TryCreateDisplayItem(marketItemId) is SObject obj)
+        {
+            obj.Stack = 1;
+            obj.Price = Math.Max(1, unitPrice);
+            obj.Quality = NormalizeQuality(quality);
+            return Math.Max(1, obj.sellToStorePrice());
+        }
+
+        return Math.Max(1, unitPrice);
+    }
+
+    private static string AppendQualityLabel(ITranslationHelper translation, string category, int quality)
+    {
+        string key = NormalizeQuality(quality) switch
+        {
+            1 => "menu.quality.silver",
+            2 => "menu.quality.gold",
+            4 => "menu.quality.iridium",
+            _ => ""
+        };
+
+        return string.IsNullOrWhiteSpace(key)
+            ? category
+            : $"{category} {T(translation, key)}";
+    }
+
+    private static int NormalizeQuality(int quality)
+    {
+        if (quality >= 4)
+            return 4;
+
+        if (quality >= 2)
+            return 2;
+
+        return quality >= 1 ? 1 : 0;
+    }
+
+    private static int GetValue(IReadOnlyDictionary<string, int> values, string canonicalItemId, string qualifiedItemId, string rawItemId)
+    {
+        if (values.TryGetValue(canonicalItemId, out int canonicalValue))
+            return canonicalValue;
+
         if (values.TryGetValue(qualifiedItemId, out int qualifiedValue))
             return qualifiedValue;
 
         return values.GetValueOrDefault(rawItemId);
     }
 
-    private static double GetValue(IReadOnlyDictionary<string, double> values, string qualifiedItemId, string rawItemId)
+    private static double GetValue(IReadOnlyDictionary<string, double> values, string canonicalItemId, string qualifiedItemId, string rawItemId)
     {
+        if (values.TryGetValue(canonicalItemId, out double canonicalValue))
+            return canonicalValue;
+
         if (values.TryGetValue(qualifiedItemId, out double qualifiedValue))
             return qualifiedValue;
 
         return values.GetValueOrDefault(rawItemId);
     }
 
-    private static string GetDisplayCategory(ObjectData objectData, ItemMarketCategory category)
+    private static string GetDisplayCategory(ITranslationHelper translation, ObjectData objectData, ItemMarketCategory category)
     {
         return objectData.Category switch
         {
-            -5 => "Egg",
-            -6 => "Milk",
-            -27 => "Syrup",
-            _ => category switch
-            {
-                ItemMarketCategory.ArtisanGoods => "Artisan",
-                ItemMarketCategory.MonsterLoot => "Monster loot",
-                _ => category.ToString()
-            }
+            -27 => T(translation, "menu.category.syrup"),
+            _ => GetDisplayCategory(translation, category)
         };
+    }
+
+    private static string GetDisplayCategory(ITranslationHelper translation, ItemMarketCategory category)
+    {
+        string key = category switch
+        {
+            ItemMarketCategory.Seed => "menu.category.seed",
+            ItemMarketCategory.Vegetable => "menu.category.vegetable",
+            ItemMarketCategory.Fruit => "menu.category.fruit",
+            ItemMarketCategory.Flower => "menu.category.flower",
+            ItemMarketCategory.Forage => "menu.category.forage",
+            ItemMarketCategory.Fish => "menu.category.fish",
+            ItemMarketCategory.AnimalProduct => "menu.category.animal-product",
+            ItemMarketCategory.ArtisanGoods => "menu.category.artisan",
+            ItemMarketCategory.Cooking => "menu.category.cooking",
+            ItemMarketCategory.Mining => "menu.category.mining",
+            ItemMarketCategory.MonsterLoot => "menu.category.monster-loot",
+            _ => "menu.category.other"
+        };
+        return T(translation, key);
+    }
+
+    private static string GetDisplayNameFromItemId(string itemId)
+    {
+        string canonicalItemId = GetCanonicalMarketItemId(itemId);
+        string rawItemId = GetRawObjectId(canonicalItemId);
+        if (Game1.objectData.TryGetValue(rawItemId, out ObjectData? objectData))
+            return GetMarketDisplayName(canonicalItemId, objectData, TryCreateDisplayItem(canonicalItemId) ?? TryCreateIcon(MarketItemIdentity.GetBaseItemId(canonicalItemId)));
+
+        return rawItemId;
+    }
+
+    private static string GetMarketDisplayName(string marketItemId, ObjectData objectData, Item? baseIcon)
+    {
+        string baseName = baseIcon?.DisplayName ?? objectData.Name ?? GetRawObjectId(marketItemId);
+        if (!MarketItemIdentity.IsProcessedItemId(marketItemId))
+            return baseName;
+
+        SObject? flavoredItem = TryCreateOfficialFlavoredItem(marketItemId);
+        return !string.IsNullOrWhiteSpace(flavoredItem?.DisplayName)
+            ? flavoredItem.DisplayName
+            : baseName;
+    }
+
+    private static string GetCanonicalMarketItemId(string marketItemId)
+    {
+        if (!MarketItemIdentity.IsProcessedItemId(marketItemId))
+            return MarketItemIdentity.GetBaseItemId(marketItemId);
+
+        return TryCreateOfficialFlavoredItem(marketItemId) is not null
+            ? marketItemId
+            : MarketItemIdentity.GetBaseItemId(marketItemId);
+    }
+
+    private static Item? TryCreateDisplayItem(string marketItemId)
+    {
+        if (MarketItemIdentity.IsProcessedItemId(marketItemId) && TryCreateOfficialFlavoredItem(marketItemId) is SObject flavoredItem)
+            return flavoredItem;
+
+        return TryCreateIcon(MarketItemIdentity.GetBaseItemId(marketItemId));
+    }
+
+    private static SObject? TryCreateOfficialFlavoredItem(string marketItemId)
+    {
+        string ingredientItemId = MarketItemIdentity.GetIngredientItemId(marketItemId);
+        if (string.IsNullOrWhiteSpace(ingredientItemId) || TryCreateIcon(ingredientItemId) is not SObject ingredientObject)
+            return null;
+
+        string baseItemId = MarketItemIdentity.GetBaseItemId(marketItemId);
+        ObjectDataDefinition objectDefinition = ItemRegistry.GetObjectTypeDefinition();
+        foreach (SObject.PreserveType preserveType in Enum.GetValues<SObject.PreserveType>())
+        {
+            foreach (string ingredientCandidateId in new[] { ingredientItemId, GetRawObjectId(ingredientItemId) }.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    string flavoredBaseItemId = MarketItemIdentity.NormalizeObjectId(objectDefinition.GetBaseItemIdForFlavoredItem(preserveType, ingredientCandidateId));
+                    if (!string.Equals(flavoredBaseItemId, baseItemId, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    return objectDefinition.CreateFlavoredItem(preserveType, ingredientObject);
+                }
+                catch
+                {
+                    // Some preserve types don't apply to some ingredients.
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string GetIngredientSearchText(string marketItemId)
+    {
+        string ingredientItemId = MarketItemIdentity.GetIngredientItemId(marketItemId);
+        return string.IsNullOrWhiteSpace(ingredientItemId)
+            ? ""
+            : GetLocalizedObjectName(ingredientItemId);
+    }
+
+    private static string GetLocalizedObjectName(string itemId)
+    {
+        try
+        {
+            Item item = ItemRegistry.Create(itemId, 1, 0, true);
+            if (!string.IsNullOrWhiteSpace(item.DisplayName))
+                return item.DisplayName;
+        }
+        catch
+        {
+            // Fall back to object data below.
+        }
+
+        string rawItemId = GetRawObjectId(itemId);
+        return Game1.objectData.TryGetValue(rawItemId, out ObjectData? objectData)
+            ? objectData.Name ?? rawItemId
+            : rawItemId;
     }
 
     private static bool IsFarmProduct(ObjectData objectData, ItemMarketCategory category)
@@ -723,6 +1228,7 @@ public sealed class LedgerMenu : IClickableMenu
                 or ItemMarketCategory.Vegetable
                 or ItemMarketCategory.Fruit
                 or ItemMarketCategory.Flower
+                or ItemMarketCategory.AnimalProduct
                 or ItemMarketCategory.ArtisanGoods
                 or ItemMarketCategory.Cooking
             || objectData.Category is -5 or -6 or -27;
@@ -736,9 +1242,10 @@ public sealed class LedgerMenu : IClickableMenu
                 ItemMarketCategory.Vegetable => 0,
                 ItemMarketCategory.Fruit => 1,
                 ItemMarketCategory.Flower => 2,
-                ItemMarketCategory.ArtisanGoods => 3,
-                ItemMarketCategory.Cooking => 4,
-                ItemMarketCategory.Seed => 5,
+                ItemMarketCategory.AnimalProduct => 3,
+                ItemMarketCategory.ArtisanGoods => 4,
+                ItemMarketCategory.Cooking => 5,
+                ItemMarketCategory.Seed => 6,
                 _ => 6
             };
 
@@ -772,16 +1279,20 @@ public sealed class LedgerMenu : IClickableMenu
         int CurrentPrice,
         double Pressure,
         int LastSold,
-        int LifetimeSold)
+        int LifetimeSold,
+        string PressureText)
     {
-        public string PressureText
+        public LedgerIcon? TrendIcon
         {
             get
             {
-                string pressure = this.Pressure <= 0 ? "0%" : this.Pressure.ToString("P0");
-                return this.LastSold > 0
-                    ? $"{pressure} ({this.LastSold})"
-                    : pressure;
+                if (this.CurrentPrice > this.BasePrice)
+                    return LedgerIcon.PriceTrendUpArrow;
+
+                if (this.CurrentPrice < this.BasePrice)
+                    return LedgerIcon.PriceTrendDownArrow;
+
+                return null;
             }
         }
     }

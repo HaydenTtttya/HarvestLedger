@@ -12,4 +12,9 @@
   <ItemGroup>
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="config.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="README.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="icon/**/*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -114,12 +114,24 @@ There are still limits:
 - Machine outputs implemented through non-inspectable C# delegates are skipped in generated ledger rows.
 - Mods that replace the game's sale-price calculation may stack with Harvest Ledger depending on load order and implementation.
 
+### Multiplayer
+
+Harvest Ledger 0.3.0 supports online and split-screen farms. Install the same version on the host and every farmhand; a farmhand without the mod will only see vanilla item prices.
+
+The host owns the economy state. It runs the daily shipping and tax settlement, saves the ledger, and sends the current market state and economy settings when someone joins. Farmhands use that state for their price display and ledger, but never write a competing copy of the save data. This keeps demand, subsidies, crop rotation, and tax totals from being applied once per player.
+
+Shipping from every farmer's shipping bin is included in the day's market pressure. Taxes remain farm-wide. On farms using separate wallets, the host account pays the farm tax bill.
+
+### Performance notes
+
+Earlier builds walked the current location every second, and honey checks could repeatedly scan every loaded location for flowers. That work has been removed from the update loop. Existing items are refreshed when the day changes, when a player enters a location, or when an item enters a local inventory. Bee-house flower quality is cached and recalculated only after a relevant world change or on a new day.
+
 Generic Mod Config Menu is optional. If installed, it provides an in-game configuration screen for the main systems and common tuning values.
 
 ## Installation
 
 1. Install SMAPI.
-2. Download or build `HarvestLedger 0.2.0.zip`.
+2. Download or build `HarvestLedger 0.3.0.zip`.
 3. Unzip it into your Stardew Valley `Mods` folder.
 4. Launch the game through SMAPI.
 5. Open a save and press `F8` to open the ledger.
@@ -143,8 +155,8 @@ The default `config.json` enables all major systems:
 {
   "EnableDynamicPricing": true,
   "EnableDailyLedger": true,
-  "EnableStaminaBalance": true,
-  "EnableTaxSystem": true,
+  "EnableStaminaBalance": false,
+  "EnableTaxSystem": false,
   "MenuKey": "F8"
 }
 ```

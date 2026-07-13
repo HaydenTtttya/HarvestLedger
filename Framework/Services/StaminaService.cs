@@ -8,9 +8,7 @@ public sealed class StaminaService
 {
     private readonly IMonitor Monitor;
     private readonly StaminaConfig Config;
-    private bool WasUsingTool;
-    private float StaminaBeforeUse;
-    private Tool? ToolInUse;
+    private readonly Dictionary<long, ToolUseState> ToolUsesByPlayerId = new();
 
     public StaminaService(IMonitor monitor, StaminaConfig config)
     {
@@ -21,28 +19,31 @@ public sealed class StaminaService
     public void Update()
     {
         Farmer player = Game1.player;
+        long playerId = player.UniqueMultiplayerID;
+        ToolUseState toolUse = this.ToolUsesByPlayerId.GetValueOrDefault(playerId) ?? new ToolUseState();
         bool isUsingTool = player.UsingTool;
 
-        if (isUsingTool && !this.WasUsingTool)
+        if (isUsingTool && !toolUse.WasUsingTool)
         {
-            this.StaminaBeforeUse = player.Stamina;
-            this.ToolInUse = player.CurrentTool;
+            toolUse.StaminaBeforeUse = player.Stamina;
+            toolUse.ToolInUse = player.CurrentTool;
         }
 
-        if (!isUsingTool && this.WasUsingTool)
-            this.ApplyCompletedUse(player);
+        if (!isUsingTool && toolUse.WasUsingTool)
+            this.ApplyCompletedUse(player, toolUse);
 
-        this.WasUsingTool = isUsingTool;
+        toolUse.WasUsingTool = isUsingTool;
+        this.ToolUsesByPlayerId[playerId] = toolUse;
     }
 
-    private void ApplyCompletedUse(Farmer player)
+    private void ApplyCompletedUse(Farmer player, ToolUseState toolUse)
     {
         float after = player.Stamina;
-        float spent = Math.Max(0, this.StaminaBeforeUse - after);
+        float spent = Math.Max(0, toolUse.StaminaBeforeUse - after);
         if (spent <= 0)
             return;
 
-        double extraCost = this.GetExtraCost(this.ToolInUse);
+        double extraCost = this.GetExtraCost(toolUse.ToolInUse);
         if (extraCost <= 0)
             return;
 
@@ -67,5 +68,12 @@ public sealed class StaminaService
     private double GetUpgradedToolCost(double configuredToolRate, Tool tool)
     {
         return Math.Max(0, configuredToolRate) * (1 + Math.Max(0, tool.UpgradeLevel));
+    }
+
+    private sealed class ToolUseState
+    {
+        public bool WasUsingTool { get; set; }
+        public float StaminaBeforeUse { get; set; }
+        public Tool? ToolInUse { get; set; }
     }
 }

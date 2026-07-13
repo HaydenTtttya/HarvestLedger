@@ -63,21 +63,29 @@ public sealed class DailyLedgerService
         if (!Context.IsWorldReady)
             yield break;
 
-        IList<Item?>? bin = null;
+        HashSet<Item> seenItems = new(ReferenceEqualityComparer.Instance);
+        Farm farm = Game1.getFarm();
 
-        try
+        foreach (Farmer farmer in Game1.getAllFarmers())
         {
-            bin = Game1.getFarm().getShippingBin(Game1.player);
-        }
-        catch (Exception ex)
-        {
-            this.Monitor.Log($"Could not read the shipping bin: {ex.Message}", LogLevel.Warn);
-        }
+            IList<Item?>? bin = null;
+            try
+            {
+                bin = farm.getShippingBin(farmer);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"Could not read the shipping bin for {farmer.Name}: {ex.Message}", LogLevel.Warn);
+            }
 
-        if (bin is null)
-            yield break;
+            if (bin is null)
+                continue;
 
-        foreach (Item? item in bin)
-            yield return item;
+            foreach (Item? item in bin)
+            {
+                if (item is not null && seenItems.Add(item))
+                    yield return item;
+            }
+        }
     }
 }

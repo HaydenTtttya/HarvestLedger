@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
@@ -58,6 +59,9 @@ public sealed class DynamicPricingService
     private readonly DynamicPricingConfig Config;
     private readonly LedgerSaveData State;
     private readonly Dictionary<string, int> PriceCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, double> ApiaryQualityByFlowerId = new(StringComparer.OrdinalIgnoreCase);
+    private string ApiaryQualityCacheDate = "";
+    private bool ApiaryQualityCacheDirty = true;
     private IDictionary<string, ObjectData>? CurrentObjectData;
 
     public DynamicPricingService(IMonitor monitor, DynamicPricingConfig config, LedgerSaveData state)
@@ -88,6 +92,7 @@ public sealed class DynamicPricingService
         this.GenerateDemandEvents(seasonKey);
         this.CaptureCropRotationSnapshot();
         this.PriceCache.Clear();
+        this.InvalidateApiaryQualityCache();
         return true;
     }
 
@@ -119,24 +124,27 @@ public sealed class DynamicPricingService
         return updated;
     }
 
-    public int ApplyToCurrentLocationItems()
-    {
-        if (!Context.IsWorldReady || Game1.currentLocation is null)
-            return 0;
-
-        return this.ApplyToLocationItems(Game1.currentLocation);
-    }
-
-    public int ApplyToWorldItems()
+    public int ApplyToLocations(IEnumerable<GameLocation> locations)
     {
         if (!Context.IsWorldReady)
             return 0;
 
         int updated = 0;
-        foreach (GameLocation location in Game1.locations)
+        HashSet<string> visited = new(StringComparer.OrdinalIgnoreCase);
+        foreach (GameLocation location in locations)
+        {
+            if (location is null || !visited.Add(location.NameOrUniqueName))
+                continue;
+
             updated += this.ApplyToLocationItems(location);
+        }
 
         return updated;
+    }
+
+    public void InvalidateApiaryQualityCache()
+    {
+        this.ApiaryQualityCacheDirty = true;
     }
 
     public void TrackProducedItem(Item? item)
@@ -200,7 +208,7 @@ public sealed class DynamicPricingService
 
         try
         {
-            Dictionary<string, double> apiaryQualityByFlower = this.GetApiaryQualityByFlowerId();
+            IReadOnlyDictionary<string, double> apiaryQualityByFlower = this.GetApiaryQualityByFlowerId();
 
             foreach ((string rawItemId, ObjectData itemData) in data)
             {
@@ -466,7 +474,7 @@ public sealed class DynamicPricingService
         return price;
     }
 
-    private int ApplyToLocationItems(GameLocation location)
+    public int ApplyToLocationItems(GameLocation location)
     {
         int updated = 0;
 
@@ -529,13 +537,14 @@ public sealed class DynamicPricingService
         if (!Context.IsWorldReady)
             return 0;
 
+        Farmer priceAuthority = Game1.MasterPlayer;
         int level = category switch
         {
-            ItemMarketCategory.Seed or ItemMarketCategory.Vegetable or ItemMarketCategory.Fruit or ItemMarketCategory.Flower or ItemMarketCategory.AnimalProduct or ItemMarketCategory.ArtisanGoods => Game1.player.FarmingLevel,
-            ItemMarketCategory.Forage => Game1.player.ForagingLevel,
-            ItemMarketCategory.Fish => Game1.player.FishingLevel,
-            ItemMarketCategory.Mining => Game1.player.MiningLevel,
-            ItemMarketCategory.MonsterLoot => Game1.player.CombatLevel,
+            ItemMarketCategory.Seed or ItemMarketCategory.Vegetable or ItemMarketCategory.Fruit or ItemMarketCategory.Flower or ItemMarketCategory.AnimalProduct or ItemMarketCategory.ArtisanGoods => priceAuthority.FarmingLevel,
+            ItemMarketCategory.Forage => priceAuthority.ForagingLevel,
+            ItemMarketCategory.Fish => priceAuthority.FishingLevel,
+            ItemMarketCategory.Mining => priceAuthority.MiningLevel,
+            ItemMarketCategory.MonsterLoot => priceAuthority.CombatLevel,
             _ => 0
         };
 
@@ -846,15 +855,22 @@ public sealed class DynamicPricingService
         return CropRotationCategory.OtherCrop;
     }
 
-    private Dictionary<string, double> GetApiaryQualityByFlowerId()
+    private IReadOnlyDictionary<string, double> GetApiaryQualityByFlowerId()
     {
-        Dictionary<string, double> qualityByFlower = new(StringComparer.OrdinalIgnoreCase);
         if (!Context.IsWorldReady)
-            return qualityByFlower;
+            return this.ApiaryQualityByFlowerId;
+
+        string dateKey = SDate.Now().ToString();
+        if (!this.ApiaryQualityCacheDirty && string.Equals(this.ApiaryQualityCacheDate, dateKey, StringComparison.Ordinal))
+            return this.ApiaryQualityByFlowerId;
+
+        this.ApiaryQualityByFlowerId.Clear();
+        this.ApiaryQualityCacheDate = dateKey;
+        this.ApiaryQualityCacheDirty = false;
 
         int radius = Math.Max(0, (int)Math.Round(this.Config.ApiaryRadius));
         if (radius <= 0)
-            return qualityByFlower;
+            return this.ApiaryQualityByFlowerId;
 
         foreach (GameLocation location in Game1.locations)
         {
@@ -864,20 +880,28 @@ public sealed class DynamicPricingService
                     continue;
 
                 List<string> nearbyFlowerIds = new();
-                foreach (var terrainPair in location.terrainFeatures.Pairs)
+                int minX = (int)objectPair.Key.X - radius;
+                int maxX = (int)objectPair.Key.X + radius;
+                int minY = (int)objectPair.Key.Y - radius;
+                int maxY = (int)objectPair.Key.Y + radius;
+                for (int x = minX; x <= maxX; x++)
                 {
-                    if (terrainPair.Value is not HoeDirt dirt || dirt.crop is null)
-                        continue;
+                    for (int y = minY; y <= maxY; y++)
+                    {
+                        if (!location.terrainFeatures.TryGetValue(new Vector2(x, y), out TerrainFeature? terrainFeature)
+                            || terrainFeature is not HoeDirt dirt
+                            || dirt.crop is null)
+                        {
+                            continue;
+                        }
 
-                    if (Math.Abs(terrainPair.Key.X - objectPair.Key.X) > radius || Math.Abs(terrainPair.Key.Y - objectPair.Key.Y) > radius)
-                        continue;
+                        string harvestItemId = ProductResolver.GetCropHarvestItemId(dirt.crop);
+                        if (string.IsNullOrWhiteSpace(harvestItemId) || !this.TryGetObjectData(harvestItemId, out ObjectData? flowerData))
+                            continue;
 
-                    string harvestItemId = ProductResolver.GetCropHarvestItemId(dirt.crop);
-                    if (string.IsNullOrWhiteSpace(harvestItemId) || !this.TryGetObjectData(harvestItemId, out ObjectData? flowerData))
-                        continue;
-
-                    if (ItemClassifier.GetCategory(flowerData) == ItemMarketCategory.Flower)
-                        nearbyFlowerIds.Add(harvestItemId);
+                        if (ItemClassifier.GetCategory(flowerData) == ItemMarketCategory.Flower)
+                            nearbyFlowerIds.Add(harvestItemId);
+                    }
                 }
 
                 if (nearbyFlowerIds.Count == 0)
@@ -888,13 +912,13 @@ public sealed class DynamicPricingService
                 double quality = Math.Clamp(flowerCountQuality + flowerDiversityQuality, 0, 1);
 
                 foreach (string flowerId in nearbyFlowerIds.Distinct(StringComparer.OrdinalIgnoreCase))
-                    qualityByFlower[flowerId] = Math.Max(qualityByFlower.GetValueOrDefault(flowerId), quality);
+                    this.ApiaryQualityByFlowerId[flowerId] = Math.Max(this.ApiaryQualityByFlowerId.GetValueOrDefault(flowerId), quality);
 
-                qualityByFlower["*"] = Math.Max(qualityByFlower.GetValueOrDefault("*"), quality);
+                this.ApiaryQualityByFlowerId["*"] = Math.Max(this.ApiaryQualityByFlowerId.GetValueOrDefault("*"), quality);
             }
         }
 
-        return qualityByFlower;
+        return this.ApiaryQualityByFlowerId;
     }
 
     private bool TryGetApiaryHoneyBasePrice(string itemId, ObjectData itemData, IReadOnlyDictionary<string, double> apiaryQualityByFlower, out int price)

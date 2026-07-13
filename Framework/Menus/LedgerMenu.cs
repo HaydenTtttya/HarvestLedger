@@ -16,9 +16,9 @@ public sealed class LedgerMenu : IClickableMenu
     private static readonly PriceFilter[] FilterOrder = [PriceFilter.Farm, PriceFilter.Fish, PriceFilter.Mine, PriceFilter.All];
 
     private const int SidePadding = 36;
-    private const int HeaderHeight = 136;
-    private const int PolicyPanelHeight = 156;
-    private const int FilterHeight = 54;
+    private const int SearchBoxHeight = 44;
+    private const int StatusLineHeight = 22;
+    private const int FilterButtonHeight = 46;
     private const int TableHeaderHeight = 34;
     private const int RowHeight = 54;
     private const int FooterHeight = 42;
@@ -223,19 +223,28 @@ public sealed class LedgerMenu : IClickableMenu
         this.DrawLedgerIcon(b, LedgerIcon.MarketPressureGauge, x, y + 2, 44);
         Utility.drawTextWithShadow(b, this.T("menu.title"), Game1.dialogueFont, new Vector2(x + 58, y), Game1.textColor);
 
-        string topPressure = string.IsNullOrWhiteSpace(this.State.LastDay.TopPressuredItemId)
-            ? this.T("menu.status.top-pressure-none")
-            : this.T("menu.status.top-pressure", new { item = GetDisplayNameFromItemId(this.State.LastDay.TopPressuredItemId), pressure = this.State.LastDay.TopPressuredItemPressure.ToString("P0") });
-        string[] statusItems =
+        string[] statusItems = this.GetStatusItems(this.GetTopPressureText());
+
+        this.DrawStatusLine(b, this.GetStatusLines(statusItems), x, y + 48);
+        this.DrawSearchBox(b, x, this.GetSearchTop());
+    }
+
+    private string[] GetStatusItems(string topPressure)
+    {
+        return
         [
             this.T("menu.status.prices", new { state = this.T(this.Config.EnableDynamicPricing ? "menu.state.on" : "menu.state.off") }),
             this.T("menu.status.sold", new { count = this.State.LastDay.SoldItemCount, gold = this.State.LastDay.GrossShippingIncome }),
             topPressure,
             this.GetTaxStatusText(this.State.TaxLedger)
         ];
+    }
 
-        this.DrawStatusLine(b, statusItems, x, y + 48, this.width - (SidePadding * 2) - 36);
-        this.DrawSearchBox(b, x, y + 76);
+    private string GetTopPressureText()
+    {
+        return string.IsNullOrWhiteSpace(this.State.LastDay.TopPressuredItemId)
+            ? this.T("menu.status.top-pressure-none")
+            : this.T("menu.status.top-pressure", new { item = GetDisplayNameFromItemId(this.State.LastDay.TopPressuredItemId), pressure = this.State.LastDay.TopPressuredItemPressure.ToString("P0") });
     }
 
     private string GetTaxStatusText(TaxLedger taxes)
@@ -259,13 +268,14 @@ public sealed class LedgerMenu : IClickableMenu
     private void DrawPolicyPanels(SpriteBatch b)
     {
         int left = this.xPositionOnScreen + SidePadding;
-        int top = this.yPositionOnScreen + HeaderHeight + 10;
+        int top = this.yPositionOnScreen + this.GetHeaderHeight() + 10;
         int gap = 14;
         int panelWidth = (this.width - (SidePadding * 2) - gap) / 2;
         int right = left + panelWidth + gap;
+        int panelHeight = this.GetPolicyPanelHeight(panelWidth);
 
-        DrawMutedBox(b, left, top, panelWidth, PolicyPanelHeight);
-        DrawMutedBox(b, right, top, panelWidth, PolicyPanelHeight);
+        DrawMutedBox(b, left, top, panelWidth, panelHeight);
+        DrawMutedBox(b, right, top, panelWidth, panelHeight);
 
         this.DrawLedgerIcon(b, LedgerIcon.RegionalDemandNoticeBoard, left + 14, top + 8, 28);
         Utility.drawTextWithShadow(b, this.T("menu.demand.title"), Game1.smallFont, new Vector2(left + 50, top + 10), Game1.textColor);
@@ -273,8 +283,19 @@ public sealed class LedgerMenu : IClickableMenu
 
         string[] demandLines = this.GetDemandLines(panelWidth - 28);
         for (int i = 0; i < demandLines.Length; i++)
-            Utility.drawTextWithShadow(b, demandLines[i], Game1.smallFont, new Vector2(left + 14, top + 40 + (i * 22)), Game1.textColor * 0.88f);
+            Utility.drawTextWithShadow(b, demandLines[i], Game1.smallFont, new Vector2(left + 14, top + 40 + (i * StatusLineHeight)), Game1.textColor * 0.88f);
 
+        string[] policyLines = this.GetWrappedLines(this.GetPolicyItems(), panelWidth - 28);
+
+        for (int i = 0; i < policyLines.Length; i++)
+        {
+            int lineY = top + 38 + (i * StatusLineHeight);
+            Utility.drawTextWithShadow(b, policyLines[i], Game1.smallFont, new Vector2(right + 14, lineY), Game1.textColor * 0.88f);
+        }
+    }
+
+    private string[] GetPolicyItems()
+    {
         string subsidyCrop = string.IsNullOrWhiteSpace(this.State.SubsidizedCropItemId)
             ? this.T("menu.none")
             : GetLocalizedObjectName(this.State.SubsidizedCropItemId);
@@ -282,7 +303,7 @@ public sealed class LedgerMenu : IClickableMenu
             ? "0 / 0"
             : $"{this.State.LastDay.SubsidizedCropCount} / {this.State.LastDay.TotalCropCount}";
         string mainCategory = this.GetDisplayCategoryFromSavedValue(this.State.LastDay.MainIncomeCategory);
-        string[] policyLines =
+        return
         [
             this.T("menu.policy.subsidy", new { crop = subsidyCrop, progress }),
             this.T("menu.policy.reduction", new { percent = this.State.SeasonalSubsidyTaxReduction.ToString("P0") }),
@@ -290,12 +311,6 @@ public sealed class LedgerMenu : IClickableMenu
             this.T("menu.policy.main-income", new { category = mainCategory, percent = this.State.LastDay.MainIncomeCategoryShare.ToString("P0") }),
             this.T("menu.policy.recovery", new { percent = this.State.LastRecoveryRate.ToString("P0") })
         ];
-
-        for (int i = 0; i < policyLines.Length; i++)
-        {
-            int lineY = top + 38 + (i * 22);
-            Utility.drawTextWithShadow(b, FitText(policyLines[i], Game1.smallFont, panelWidth - 28), Game1.smallFont, new Vector2(right + 14, lineY), Game1.textColor * 0.88f);
-        }
     }
 
     private void DrawFilters(SpriteBatch b)
@@ -333,23 +348,48 @@ public sealed class LedgerMenu : IClickableMenu
         int right = this.xPositionOnScreen + this.width - SidePadding;
         int tableWidth = right - left;
         int tableHeight = TableHeaderHeight + (rowsPerPage * RowHeight);
-        int contentRight = Math.Max(left + 240, right - ScrollbarWidth - ScrollbarGap);
+        int contentRight = Math.Max(left + 100, right - ScrollbarWidth - ScrollbarGap);
         int contentWidth = contentRight - left;
 
         DrawMutedBox(b, left, top, tableWidth, tableHeight);
 
+        bool compactColumns = tableWidth < 620;
+        bool extraCompactColumns = tableWidth < 360;
         bool roomyColumns = tableWidth >= 760;
+        int pressureColumnWidth = this.GetPressureColumnWidth(visibleRows, roomyColumns ? 132 : 96, roomyColumns ? 210 : 130);
         int iconX = left + 18;
-        int nameX = left + 78;
-        int pressureX = contentRight - (roomyColumns ? 124 : 112);
-        int currentX = pressureX - (roomyColumns ? 136 : 110);
-        int baseX = currentX - (roomyColumns ? 128 : 98);
-        int nameWidth = Math.Max(80, baseX - nameX - 14);
+        int nameX;
+        int pressureX;
+        int currentX;
+        int baseX = 0;
+        int nameWidth;
 
-        this.DrawColumnHeader(b, this.T("menu.table.item"), nameX, top + 8);
-        this.DrawColumnHeader(b, this.T("menu.table.base"), baseX, top + 8);
-        this.DrawColumnHeader(b, this.T("menu.table.now"), currentX, top + 8);
-        this.DrawColumnHeader(b, this.T("menu.table.pressure"), pressureX, top + 8);
+        if (compactColumns)
+        {
+            iconX = left + 12;
+            nameX = left + 58;
+            pressureX = extraCompactColumns ? 0 : contentRight - pressureColumnWidth;
+            currentX = extraCompactColumns ? contentRight - 64 : pressureX - 108;
+            nameWidth = Math.Max(50, currentX - nameX - (extraCompactColumns ? 8 : 38));
+
+            this.DrawColumnHeader(b, this.T("menu.table.item"), nameX, top + 8);
+            this.DrawColumnHeader(b, this.T("menu.table.now"), currentX, top + 8);
+            if (!extraCompactColumns)
+                this.DrawColumnHeader(b, FitText(this.T("menu.table.pressure"), Game1.smallFont, 106), pressureX, top + 8);
+        }
+        else
+        {
+            nameX = left + 78;
+            pressureX = contentRight - pressureColumnWidth;
+            currentX = pressureX - (roomyColumns ? 136 : 110);
+            baseX = currentX - (roomyColumns ? 128 : 98);
+            nameWidth = Math.Max(80, baseX - nameX - 14);
+
+            this.DrawColumnHeader(b, this.T("menu.table.item"), nameX, top + 8);
+            this.DrawColumnHeader(b, this.T("menu.table.base"), baseX, top + 8);
+            this.DrawColumnHeader(b, this.T("menu.table.now"), currentX, top + 8);
+            this.DrawColumnHeader(b, this.T("menu.table.pressure"), pressureX, top + 8);
+        }
         this.DrawScrollbar(b, right - ScrollbarWidth, top + TableHeaderHeight + 4, tableHeight - TableHeaderHeight - 8, visibleRows.Count, rowsPerPage);
 
         if (visibleRows.Count == 0)
@@ -378,11 +418,13 @@ public sealed class LedgerMenu : IClickableMenu
             Utility.drawTextWithShadow(b, name, Game1.smallFont, new Vector2(nameX, rowTop + 8), Game1.textColor);
             Utility.drawTextWithShadow(b, category, Game1.smallFont, new Vector2(nameX, rowTop + 31), Game1.textColor * 0.72f);
 
-            Utility.drawTextWithShadow(b, $"{row.BasePrice}g", Game1.smallFont, new Vector2(baseX, rowTop + 14), Game1.textColor);
-            if (row.TrendIcon is not null)
-                this.DrawLedgerIcon(b, row.TrendIcon.Value, currentX - 32, rowTop + 15, 24);
+            if (!compactColumns)
+                Utility.drawTextWithShadow(b, $"{row.BasePrice}g", Game1.smallFont, new Vector2(baseX, rowTop + 14), Game1.textColor);
+            if (row.TrendIcon is not null && !extraCompactColumns)
+                this.DrawLedgerIcon(b, row.TrendIcon.Value, currentX - 28, rowTop + 15, 24);
             Utility.drawTextWithShadow(b, $"{row.CurrentPrice}g", Game1.smallFont, new Vector2(currentX, rowTop + 14), GetPriceColor(row));
-            Utility.drawTextWithShadow(b, row.PressureText, Game1.smallFont, new Vector2(pressureX, rowTop + 14), Game1.textColor);
+            if (!extraCompactColumns)
+                Utility.drawTextWithShadow(b, FitText(row.PressureText, Game1.smallFont, contentRight - pressureX - 4), Game1.smallFont, new Vector2(pressureX, rowTop + 14), Game1.textColor);
 
             rowIndex++;
         }
@@ -424,25 +466,10 @@ public sealed class LedgerMenu : IClickableMenu
         Utility.drawTextWithShadow(b, text, Game1.smallFont, new Vector2(x, y), Game1.textColor * 0.72f);
     }
 
-    private void DrawStatusLine(SpriteBatch b, IReadOnlyList<string> items, int x, int y, int maxWidth)
+    private void DrawStatusLine(SpriteBatch b, IReadOnlyList<string> lines, int x, int y)
     {
-        int cursorX = x;
-        int cursorY = y;
-        int gap = 20;
-        int lineHeight = 22;
-
-        foreach (string item in items)
-        {
-            Vector2 size = Game1.smallFont.MeasureString(item);
-            if (cursorX > x && cursorX + size.X > x + maxWidth)
-            {
-                cursorX = x;
-                cursorY += lineHeight;
-            }
-
-            Utility.drawTextWithShadow(b, item, Game1.smallFont, new Vector2(cursorX, cursorY), Game1.textColor * 0.86f);
-            cursorX += (int)size.X + gap;
-        }
+        for (int i = 0; i < lines.Count; i++)
+            Utility.drawTextWithShadow(b, lines[i], Game1.smallFont, new Vector2(x, y + (i * StatusLineHeight)), Game1.textColor * 0.86f);
     }
 
     private void DrawSearchBox(SpriteBatch b, int x, int y)
@@ -454,8 +481,8 @@ public sealed class LedgerMenu : IClickableMenu
         int boxWidth = Math.Min(380, this.xPositionOnScreen + this.width - SidePadding - boxX);
         this.SearchBox.X = boxX;
         this.SearchBox.Y = y;
-        this.SearchBox.Width = Math.Max(180, boxWidth);
-        this.SearchBox.Height = 44;
+        this.SearchBox.Width = Math.Max(80, boxWidth);
+        this.SearchBox.Height = SearchBoxHeight;
         this.SearchBounds = new Rectangle(this.SearchBox.X, this.SearchBox.Y, this.SearchBox.Width, this.SearchBox.Height);
 
         this.SearchBox.Draw(b, false);
@@ -577,8 +604,8 @@ public sealed class LedgerMenu : IClickableMenu
         foreach (DemandEventState demandEvent in this.State.DemandEvents.Where(demandEvent => demandEvent.IsActive(day)).OrderBy(demandEvent => demandEvent.StartDay).Take(2))
         {
             string categories = string.Join(", ", demandEvent.CategoryBonuses.Select(pair => $"{GetDisplayCategory(this.Translation, pair.Key)} +{pair.Value:P0}"));
-            lines.Add(FitText(this.GetDemandEventName(demandEvent), Game1.smallFont, maxWidth));
-            lines.Add(FitText(this.T("menu.demand.remaining", new { categories, days = demandEvent.GetRemainingDays(day) }), Game1.smallFont, maxWidth));
+            lines.AddRange(this.GetWrappedLines([this.GetDemandEventName(demandEvent)], maxWidth));
+            lines.AddRange(this.GetWrappedLines([this.T("menu.demand.remaining", new { categories, days = demandEvent.GetRemainingDays(day) })], maxWidth));
         }
 
         if (lines.Count == 0)
@@ -589,18 +616,15 @@ public sealed class LedgerMenu : IClickableMenu
                 .FirstOrDefault();
 
             if (next is null)
-                lines.Add(this.T("menu.demand.no-active"));
+                lines.AddRange(this.GetWrappedLines([this.T("menu.demand.no-active")], maxWidth));
             else
             {
-                lines.Add(FitText(this.T("menu.demand.next", new { name = this.GetDemandEventName(next) }), Game1.smallFont, maxWidth));
-                lines.Add(FitText(this.T("menu.demand.starts", new { day = next.StartDay }), Game1.smallFont, maxWidth));
+                lines.AddRange(this.GetWrappedLines([this.T("menu.demand.next", new { name = this.GetDemandEventName(next) })], maxWidth));
+                lines.AddRange(this.GetWrappedLines([this.T("menu.demand.starts", new { day = next.StartDay })], maxWidth));
             }
         }
 
-        while (lines.Count < 4)
-            lines.Add("");
-
-        return lines.Take(4).ToArray();
+        return lines.ToArray();
     }
 
     private string GetExposureStateText(int exposureScore)
@@ -655,6 +679,65 @@ public sealed class LedgerMenu : IClickableMenu
             trimmed = trimmed[..^1];
 
         return trimmed.Length == 0 ? ellipsis : trimmed + ellipsis;
+    }
+
+    private int GetPressureColumnWidth(IReadOnlyList<PriceRow> rows, int minimum, int maximum)
+    {
+        float widestText = Game1.smallFont.MeasureString(this.T("menu.table.pressure")).X;
+        foreach (PriceRow row in rows)
+            widestText = Math.Max(widestText, Game1.smallFont.MeasureString(row.PressureText).X);
+
+        return Math.Clamp((int)Math.Ceiling(widestText) + 14, minimum, maximum);
+    }
+
+    private IReadOnlyList<string> GetStatusLines(IReadOnlyList<string> items)
+    {
+        int maxWidth = Math.Max(80, this.width - (SidePadding * 2) - 36);
+        const string gap = "   ";
+        List<string> lines = new();
+        string currentLine = "";
+
+        foreach (string item in items.Where(item => !string.IsNullOrWhiteSpace(item)))
+        {
+            if (Game1.smallFont.MeasureString(item).X > maxWidth)
+            {
+                if (!string.IsNullOrEmpty(currentLine))
+                {
+                    lines.Add(currentLine);
+                    currentLine = "";
+                }
+
+                lines.AddRange(this.GetWrappedLines([item], maxWidth));
+                continue;
+            }
+
+            string candidate = string.IsNullOrEmpty(currentLine) ? item : currentLine + gap + item;
+            if (Game1.smallFont.MeasureString(candidate).X <= maxWidth)
+            {
+                currentLine = candidate;
+                continue;
+            }
+
+            lines.Add(currentLine);
+            currentLine = item;
+        }
+
+        if (!string.IsNullOrEmpty(currentLine))
+            lines.Add(currentLine);
+
+        return lines.Count > 0 ? lines : [""];
+    }
+
+    private string[] GetWrappedLines(IEnumerable<string> items, int maxWidth)
+    {
+        List<string> lines = new();
+        foreach (string item in items)
+        {
+            string wrapped = Game1.parseText(item, Game1.smallFont, Math.Max(1, maxWidth));
+            lines.AddRange(wrapped.Split('\n', StringSplitOptions.None).Select(line => line.TrimEnd('\r')));
+        }
+
+        return lines.Count > 0 ? lines.ToArray() : [""];
     }
 
     private void DrawLedgerIcon(SpriteBatch b, LedgerIcon icon, int x, int y, int size)
@@ -734,11 +817,13 @@ public sealed class LedgerMenu : IClickableMenu
     private void UpdateButtonBounds()
     {
         int x = this.xPositionOnScreen + SidePadding;
-        int y = this.yPositionOnScreen + HeaderHeight + PolicyPanelHeight + 26;
+        int headerHeight = this.GetHeaderHeight();
+        int panelWidth = (this.width - (SidePadding * 2) - 14) / 2;
+        int y = this.yPositionOnScreen + headerHeight + this.GetPolicyPanelHeight(panelWidth) + 26;
         int gap = 10;
-        int buttonHeight = 46;
+        int buttonHeight = FilterButtonHeight;
         int availableWidth = this.width - (SidePadding * 2);
-        int buttonWidth = Math.Max(64, (availableWidth - (gap * (FilterOrder.Length - 1))) / FilterOrder.Length);
+        int buttonWidth = Math.Max(48, (availableWidth - (gap * (FilterOrder.Length - 1))) / FilterOrder.Length);
 
         for (int i = 0; i < FilterOrder.Length; i++)
         {
@@ -753,7 +838,34 @@ public sealed class LedgerMenu : IClickableMenu
 
     private int GetTableTop()
     {
-        return this.yPositionOnScreen + HeaderHeight + PolicyPanelHeight + FilterHeight + 22;
+        int panelWidth = (this.width - (SidePadding * 2) - 14) / 2;
+        return this.yPositionOnScreen + this.GetHeaderHeight() + this.GetPolicyPanelHeight(panelWidth) + this.GetFilterHeight() + 22;
+    }
+
+    private int GetHeaderHeight()
+    {
+        // The panels start ten pixels after this boundary, which leaves a two-pixel gap below the search box.
+        return this.GetSearchTop() - this.yPositionOnScreen + SearchBoxHeight - 8;
+    }
+
+    private int GetSearchTop()
+    {
+        int statusLineCount = this.GetStatusLines(this.GetStatusItems(this.GetTopPressureText())).Count;
+        return this.yPositionOnScreen + 30 + 48 + (statusLineCount * StatusLineHeight) + 6;
+    }
+
+    private int GetPolicyPanelHeight(int panelWidth)
+    {
+        int contentWidth = Math.Max(80, panelWidth - 28);
+        int demandLineCount = this.GetDemandLines(contentWidth).Length;
+        int policyLineCount = this.GetWrappedLines(this.GetPolicyItems(), contentWidth).Length;
+        int lineCount = Math.Max(5, Math.Max(demandLineCount, policyLineCount));
+        return 38 + (lineCount * StatusLineHeight) + 8;
+    }
+
+    private int GetFilterHeight()
+    {
+        return FilterButtonHeight + 8;
     }
 
     private int GetRowsPerPage()

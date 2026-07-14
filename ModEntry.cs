@@ -296,6 +296,7 @@ public sealed class ModEntry : Mod
             EnableDailyLedger = this.Config.EnableDailyLedger,
             EnableStaminaBalance = this.HostStaminaBalanceEnabled,
             EnableTaxSystem = this.HostTaxSystemEnabled,
+            ShowFarmTaxOverview = this.Config.ShowFarmTaxOverview,
             MenuKey = this.Config.MenuKey,
             DynamicPricing = this.EffectiveDynamicPricingConfig,
             Stamina = this.EffectiveStaminaConfig,

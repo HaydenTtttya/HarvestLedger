@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>HarvestLedger</AssemblyName>
     <RootNamespace>HarvestLedger</RootNamespace>
-    <Version>0.3.0</Version>
+    <Version>0.4.2</Version>
     <LangVersion>latest</LangVersion>
     <EnableModDeploy>false</EnableModDeploy>
   </PropertyGroup>

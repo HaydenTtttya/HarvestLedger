@@ -1,9 +1,10 @@
 {
   "Name": "Harvest Ledger",
   "Author": "Hayden",
-  "Version": "0.3.0",
+  "Version": "0.4.2",
   "Description": "A modular farm economy overhaul for prices, taxes, stamina, and daily ledger balancing.",
   "UniqueID": "Hayden.HarvestLedger",
   "EntryDll": "HarvestLedger.dll",
+  "UpdateKeys": [ "Nexus:48951" ],
   "MinimumApiVersion": "4.0.0"
 }

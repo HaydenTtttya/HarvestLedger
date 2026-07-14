@@ -41,6 +41,7 @@ public sealed class LedgerMenu : IClickableMenu
     private Rectangle ScrollbarThumbBounds;
     private Rectangle SearchBounds;
     private IKeyboardSubscriber? PreviousKeyboardSubscriber;
+    private PriceRow? HoveredRow;
     private bool DraggingScrollbar;
     private int ScrollbarDragOffsetY;
     private int Page;
@@ -194,6 +195,7 @@ public sealed class LedgerMenu : IClickableMenu
     public override void draw(SpriteBatch b)
     {
         this.RepositionCloseButton();
+        this.HoveredRow = null;
 
         IClickableMenu.drawTextureBox(
             b,
@@ -212,6 +214,7 @@ public sealed class LedgerMenu : IClickableMenu
         this.DrawFooter(b);
 
         this.upperRightCloseButton?.draw(b);
+        this.DrawHoverTooltip(b);
         this.drawMouse(b);
     }
 
@@ -236,7 +239,7 @@ public sealed class LedgerMenu : IClickableMenu
             this.T("menu.status.prices", new { state = this.T(this.Config.EnableDynamicPricing ? "menu.state.on" : "menu.state.off") }),
             this.T("menu.status.sold", new { count = this.State.LastDay.SoldItemCount, gold = this.State.LastDay.GrossShippingIncome }),
             topPressure,
-            this.GetTaxStatusText(this.State.TaxLedger)
+            this.GetTaxStatusText()
         ];
     }
 
@@ -247,11 +250,30 @@ public sealed class LedgerMenu : IClickableMenu
             : this.T("menu.status.top-pressure", new { item = GetDisplayNameFromItemId(this.State.LastDay.TopPressuredItemId), pressure = this.State.LastDay.TopPressuredItemPressure.ToString("P0") });
     }
 
-    private string GetTaxStatusText(TaxLedger taxes)
+    private string GetTaxStatusText()
     {
         if (!this.Config.EnableTaxSystem)
             return this.T("menu.status.tax-off");
 
+        if (this.State.UsesPlayerTaxLedgers && this.State.PlayerTaxLedgers.TryGetValue(Game1.player.UniqueMultiplayerID, out PlayerTaxLedger? playerLedger))
+        {
+            int playerDue = playerLedger.PendingTaxes + playerLedger.UnpaidTaxes;
+            string personalStatus = playerDue > 0
+                ? this.T("menu.status.tax-personal-due", new { gold = playerDue })
+                : playerLedger.LastCollectedTaxes > 0
+                    ? this.T("menu.status.tax-personal-collected", new { gold = playerLedger.LastCollectedTaxes })
+                    : playerLedger.LastAssessedTaxes > 0
+                        ? this.T("menu.status.tax-personal-assessed", new { gold = playerLedger.LastAssessedTaxes })
+                        : this.T("menu.status.tax-personal-none");
+
+            if (!this.Config.ShowFarmTaxOverview)
+                return personalStatus;
+
+            int farmDue = this.State.TaxLedger.PendingTaxes + this.State.TaxLedger.UnpaidTaxes;
+            return $"{personalStatus} · {this.T("menu.status.tax-farm-overview", new { gold = farmDue })}";
+        }
+
+        TaxLedger taxes = this.State.TaxLedger;
         int taxesDue = taxes.PendingTaxes + taxes.UnpaidTaxes;
         if (taxesDue > 0)
             return this.T("menu.status.tax-due", new { gold = taxesDue });
@@ -303,7 +325,7 @@ public sealed class LedgerMenu : IClickableMenu
             ? "0 / 0"
             : $"{this.State.LastDay.SubsidizedCropCount} / {this.State.LastDay.TotalCropCount}";
         string mainCategory = this.GetDisplayCategoryFromSavedValue(this.State.LastDay.MainIncomeCategory);
-        return
+        List<string> policyItems =
         [
             this.T("menu.policy.subsidy", new { crop = subsidyCrop, progress }),
             this.T("menu.policy.reduction", new { percent = this.State.SeasonalSubsidyTaxReduction.ToString("P0") }),
@@ -311,6 +333,20 @@ public sealed class LedgerMenu : IClickableMenu
             this.T("menu.policy.main-income", new { category = mainCategory, percent = this.State.LastDay.MainIncomeCategoryShare.ToString("P0") }),
             this.T("menu.policy.recovery", new { percent = this.State.LastRecoveryRate.ToString("P0") })
         ];
+
+        if (this.Config.EnableTaxSystem && this.State.UsesPlayerTaxLedgers && this.State.PlayerTaxLedgers.TryGetValue(Game1.player.UniqueMultiplayerID, out PlayerTaxLedger? playerLedger))
+        {
+            policyItems.Add(this.T("menu.policy.personal-tax", new
+            {
+                shipping = playerLedger.LastShippingIncome,
+                income = playerLedger.LastIncomeTax,
+                shared = playerLedger.LastLandUseTax + playerLedger.LastAutomationTax,
+                subsidy = playerLedger.LastSubsidyReduction,
+                total = playerLedger.LastAssessedTaxes
+            }));
+        }
+
+        return policyItems.ToArray();
     }
 
     private void DrawFilters(SpriteBatch b)
@@ -412,6 +448,12 @@ public sealed class LedgerMenu : IClickableMenu
             b.Draw(Game1.staminaRect, new Rectangle(left + 8, rowTop + 4, contentWidth - 8, RowHeight - 8), rowColor);
 
             row.Icon?.drawInMenu(b, new Vector2(iconX, rowTop + 1), 0.68f, 1f, 0.88f, StackDrawType.Hide, Color.White, false);
+            Rectangle iconBounds = new(iconX, rowTop + 1, 44, 44);
+            if (row.Icon is not null && iconBounds.Contains(Game1.getMouseX(), Game1.getMouseY()))
+            {
+                this.HoveredRow = row;
+                b.Draw(Game1.staminaRect, iconBounds, Color.White * 0.12f);
+            }
 
             string name = FitText(row.DisplayName, Game1.smallFont, nameWidth);
             string category = FitText(row.DisplayCategory, Game1.smallFont, nameWidth);
@@ -427,6 +469,64 @@ public sealed class LedgerMenu : IClickableMenu
                 Utility.drawTextWithShadow(b, FitText(row.PressureText, Game1.smallFont, contentRight - pressureX - 4), Game1.smallFont, new Vector2(pressureX, rowTop + 14), Game1.textColor);
 
             rowIndex++;
+        }
+    }
+
+    private void DrawHoverTooltip(SpriteBatch b)
+    {
+        if (this.HoveredRow is not PriceRow row)
+            return;
+
+        string[] lines =
+        [
+            this.T("menu.tooltip.quality-prices"),
+            this.T("menu.tooltip.normal-price", new { gold = GetSalePriceForDisplay(row.ItemId, row.CurrentUnitPrice, 0) }),
+            this.T("menu.tooltip.silver-price", new { gold = GetSalePriceForDisplay(row.ItemId, row.CurrentUnitPrice, 1) }),
+            this.T("menu.tooltip.gold-price", new { gold = GetSalePriceForDisplay(row.ItemId, row.CurrentUnitPrice, 2) }),
+            this.T("menu.tooltip.iridium-price", new { gold = GetSalePriceForDisplay(row.ItemId, row.CurrentUnitPrice, 4) }),
+            this.T("menu.tooltip.pressure", new { pressure = row.Pressure.ToString("P0") }),
+            this.T("menu.tooltip.yesterday-sold", new { count = row.LastSold }),
+            this.T("menu.tooltip.lifetime-sold", new { count = row.LifetimeSold })
+        ];
+
+        float contentWidth = Math.Max(
+            Game1.smallFont.MeasureString(row.DisplayName).X,
+            lines.Max(line => Game1.smallFont.MeasureString(line).X));
+        const int tooltipLineTop = 50;
+        const int tooltipBottomPadding = 30;
+        int tooltipLineHeight = Math.Max(22, Game1.smallFont.LineSpacing);
+        int tooltipWidth = Math.Clamp((int)Math.Ceiling(contentWidth) + 40, 230, 420);
+        int tooltipHeight = tooltipLineTop + (lines.Length * tooltipLineHeight) + tooltipBottomPadding;
+        int mouseX = Game1.getMouseX();
+        int mouseY = Game1.getMouseY();
+        int tooltipX = mouseX + 28;
+        int tooltipY = mouseY + 22;
+
+        if (tooltipX + tooltipWidth > Game1.uiViewport.Width - 8)
+            tooltipX = mouseX - tooltipWidth - 18;
+        if (tooltipY + tooltipHeight > Game1.uiViewport.Height - 8)
+            tooltipY = mouseY - tooltipHeight - 18;
+
+        tooltipX = Math.Clamp(tooltipX, 8, Math.Max(8, Game1.uiViewport.Width - tooltipWidth - 8));
+        tooltipY = Math.Clamp(tooltipY, 8, Math.Max(8, Game1.uiViewport.Height - tooltipHeight - 8));
+
+        IClickableMenu.drawTextureBox(
+            b,
+            Game1.menuTexture,
+            new Rectangle(0, 256, 60, 60),
+            tooltipX,
+            tooltipY,
+            tooltipWidth,
+            tooltipHeight,
+            Color.White);
+
+        Utility.drawTextWithShadow(b, row.DisplayName, Game1.smallFont, new Vector2(tooltipX + 20, tooltipY + 15), Game1.textColor);
+        b.Draw(Game1.staminaRect, new Rectangle(tooltipX + 16, tooltipY + 41, tooltipWidth - 32, 2), Color.Black * 0.22f);
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            Color textColor = i == 0 ? Game1.textColor * 0.78f : Game1.textColor;
+            Utility.drawTextWithShadow(b, lines[i], Game1.smallFont, new Vector2(tooltipX + 20, tooltipY + tooltipLineTop + (i * tooltipLineHeight)), textColor);
         }
     }
 
@@ -998,6 +1098,7 @@ public sealed class LedgerMenu : IClickableMenu
                 icon,
                 displayBasePrice,
                 currentPrice,
+                currentBasePrice,
                 pricePressure,
                 lastSold,
                 lifetimeSold,
@@ -1077,6 +1178,7 @@ public sealed class LedgerMenu : IClickableMenu
                 outputObject,
                 GetSalePriceForDisplay(marketItemId, basePrice, displayQuality),
                 GetSalePriceForDisplay(marketItemId, currentBasePrice, displayQuality),
+                currentBasePrice,
                 pricePressure,
                 lastSold,
                 lifetimeSold,
@@ -1403,6 +1505,7 @@ public sealed class LedgerMenu : IClickableMenu
         Item? Icon,
         int BasePrice,
         int CurrentPrice,
+        int CurrentUnitPrice,
         double Pressure,
         int LastSold,
         int LifetimeSold,

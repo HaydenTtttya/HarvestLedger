@@ -17,4 +17,5 @@ public sealed class TaxConfig
     public int HighLandUseTaxPerTile { get; set; } = 3;
     public double AutomationRate { get; set; } = 12;
     public double UnpaidTaxPenalty { get; set; } = 0.05;
+    public string SharedCostAllocation { get; set; } = "ShippingIncome";
 }

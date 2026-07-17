@@ -18,7 +18,7 @@ internal static class GenericModConfigMenuIntegration
         api.AddBoolOption(manifest, () => config.EnableDailyLedger, value => config.EnableDailyLedger = value, () => "Daily ledger logging");
         api.AddBoolOption(manifest, () => config.EnableStaminaBalance, value => config.EnableStaminaBalance = value, () => "Stamina balancing");
         api.AddBoolOption(manifest, () => config.EnableTaxSystem, value => config.EnableTaxSystem = value, () => "Tax system");
-        api.AddBoolOption(manifest, () => config.ShowFarmTaxOverview, value => config.ShowFarmTaxOverview = value, () => "Show farm tax overview");
+        api.AddBoolOption(manifest, () => config.ShowFarmTaxOverview, value => config.ShowFarmTaxOverview = value, () => "Show tax overview button", () => "Adds a floating tax bill to the F8 ledger.");
         api.AddKeybindList(manifest, () => config.MenuKey, value => config.MenuKey = value, () => "Status hotkey");
 
         api.AddSectionTitle(manifest, () => "Dynamic pricing");
@@ -29,6 +29,8 @@ internal static class GenericModConfigMenuIntegration
         api.AddNumberOption(manifest, () => (float)config.DynamicPricing.BaseRecovery, value => config.DynamicPricing.BaseRecovery = value, () => "Base recovery", null, 0f, 1f, 0.01f);
         api.AddNumberOption(manifest, () => (float)config.DynamicPricing.MaxDiversityRecovery, value => config.DynamicPricing.MaxDiversityRecovery = value, () => "Max diversity recovery", null, 0f, 1f, 0.01f);
         api.AddNumberOption(manifest, () => (float)config.DynamicPricing.SubsidyRecovery, value => config.DynamicPricing.SubsidyRecovery = value, () => "Subsidy recovery", null, 0f, 1f, 0.01f);
+        api.AddNumberOption(manifest, () => (float)config.DynamicPricing.SubsidyCropCurveScale, value => config.DynamicPricing.SubsidyCropCurveScale = value, () => "Subsidy crop curve", () => "Required crops grow with the square root of the planted-crop count.", 0.1f, 10f, 0.1f);
+        api.AddNumberOption(manifest, () => config.DynamicPricing.SubsidyMaximumCropCount, value => config.DynamicPricing.SubsidyMaximumCropCount = value, () => "Maximum subsidy crops", null, 1, 500, 1);
         api.AddNumberOption(manifest, () => (float)config.DynamicPricing.SkillBonus, value => config.DynamicPricing.SkillBonus = value, () => "Skill bonus per level", null, 0f, 0.1f, 0.001f);
 
         api.AddSectionTitle(manifest, () => "Taxes");
@@ -37,6 +39,7 @@ internal static class GenericModConfigMenuIntegration
         api.AddNumberOption(manifest, () => (float)config.Taxes.ThirdIncomeTaxRate, value => config.Taxes.ThirdIncomeTaxRate = value, () => "Income tax 75k-150k", null, 0f, 0.5f, 0.01f);
         api.AddNumberOption(manifest, () => (float)config.Taxes.TopIncomeTaxRate, value => config.Taxes.TopIncomeTaxRate = value, () => "Income tax 150k+", null, 0f, 0.5f, 0.01f);
         api.AddNumberOption(manifest, () => (float)config.Taxes.AutomationRate, value => config.Taxes.AutomationRate = value, () => "Automation rate", null, 0f, 100f, 1f);
+        api.AddBoolOption(manifest, () => config.Taxes.ApplyUnpaidTaxPenalty, value => config.Taxes.ApplyUnpaidTaxPenalty = value, () => "Apply unpaid-tax penalty", () => "Off by default. When enabled, unpaid taxes gain the configured late fee each morning.");
         api.AddTextOption(manifest, () => config.Taxes.SharedCostAllocation, value => config.Taxes.SharedCostAllocation = value, () => "Shared cost split", () => "Separate-wallet farms only.", ["ShippingIncome", "Equal", "HostPays"]);
 
         api.AddSectionTitle(manifest, () => "Stamina");

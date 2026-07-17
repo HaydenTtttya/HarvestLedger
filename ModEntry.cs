@@ -30,6 +30,10 @@ public sealed class ModEntry : Mod
     private bool HostTaxSystemEnabled;
     private bool HostStaminaBalanceEnabled;
     private Texture2D? IconAtlas;
+    private Texture2D? PriceUpArrow;
+    private Texture2D? PriceDownArrow;
+    private Texture2D? TaxIcon;
+    private Texture2D? MainIcon;
 
     private bool IsEconomyAuthority => Context.IsMainPlayer;
     private bool IsDynamicPricingEnabled => this.IsEconomyAuthority
@@ -240,7 +244,15 @@ public sealed class ModEntry : Mod
         if (!Context.IsWorldReady || !this.Config.MenuKey.JustPressed())
             return;
 
-        Game1.activeClickableMenu = new LedgerMenu(this.State, this.GetLedgerConfig(), this.LoadIconAtlas(), this.Helper.Translation);
+        Game1.activeClickableMenu = new LedgerMenu(
+            this.State,
+            this.GetLedgerConfig(),
+            this.LoadIconAtlas(),
+            this.LoadPriceUpArrow(),
+            this.LoadPriceDownArrow(),
+            this.LoadTaxIcon(),
+            this.LoadMainIcon(),
+            this.Helper.Translation);
     }
 
     private void ResetConfig()
@@ -387,6 +399,74 @@ public sealed class ModEntry : Mod
         }
 
         return this.IconAtlas;
+    }
+
+    private Texture2D? LoadPriceUpArrow()
+    {
+        if (this.PriceUpArrow is not null)
+            return this.PriceUpArrow;
+
+        try
+        {
+            this.PriceUpArrow = this.Helper.ModContent.Load<Texture2D>("icon/arrow_up.png");
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Could not load price increase arrow: {ex.Message}", LogLevel.Trace);
+        }
+
+        return this.PriceUpArrow;
+    }
+
+    private Texture2D? LoadPriceDownArrow()
+    {
+        if (this.PriceDownArrow is not null)
+            return this.PriceDownArrow;
+
+        try
+        {
+            this.PriceDownArrow = this.Helper.ModContent.Load<Texture2D>("icon/arrow_down.png");
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Could not load price decrease arrow: {ex.Message}", LogLevel.Trace);
+        }
+
+        return this.PriceDownArrow;
+    }
+
+    private Texture2D? LoadTaxIcon()
+    {
+        if (this.TaxIcon is not null)
+            return this.TaxIcon;
+
+        try
+        {
+            this.TaxIcon = this.Helper.ModContent.Load<Texture2D>("icon/Tax.png");
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Could not load tax icon: {ex.Message}", LogLevel.Trace);
+        }
+
+        return this.TaxIcon;
+    }
+
+    private Texture2D? LoadMainIcon()
+    {
+        if (this.MainIcon is not null)
+            return this.MainIcon;
+
+        try
+        {
+            this.MainIcon = this.Helper.ModContent.Load<Texture2D>("icon/Main.png");
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Could not load main menu icon: {ex.Message}", LogLevel.Trace);
+        }
+
+        return this.MainIcon;
     }
 
     private string GetSeasonStartMessage()

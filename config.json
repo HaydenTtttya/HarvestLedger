@@ -13,6 +13,8 @@
     "BaseRecovery": 0.06,
     "MaxDiversityRecovery": 0.05,
     "SubsidyRecovery": 0.02,
+    "SubsidyCropCurveScale": 2.0,
+    "SubsidyMaximumCropCount": 64,
     "ExposurePenaltyCap": 0.1,
     "MaxProcessingTraceBonus": 0.05,
     "ApiaryRadius": 5.0,
@@ -77,6 +79,7 @@
     "MediumLandUseTaxPerTile": 2,
     "HighLandUseTaxPerTile": 3,
     "AutomationRate": 12.0,
+    "ApplyUnpaidTaxPenalty": false,
     "UnpaidTaxPenalty": 0.05,
     "SharedCostAllocation": "ShippingIncome"
   }

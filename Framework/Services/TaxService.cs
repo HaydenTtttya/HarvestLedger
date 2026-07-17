@@ -1,5 +1,9 @@
+using System.Reflection;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Buildings;
+using StardewValley.GameData.Machines;
+using StardewValley.Locations;
 using StardewValley.TerrainFeatures;
 using SObject = StardewValley.Object;
 
@@ -7,16 +11,9 @@ namespace HarvestLedger.Framework.Services;
 
 public sealed class TaxService
 {
-    private static readonly HashSet<string> AutomationMachineNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Keg",
-        "Preserves Jar",
-        "Crystalarium",
-        "Fish Smoker",
-        "Dehydrator",
-        "Cask",
-        "Bee House"
-    };
+    private const int CurrentAutomationTaxRuleVersion = 2;
+    private static readonly FieldInfo? HasBeenInInventoryField = typeof(SObject).GetField("hasBeenInInventory", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly PropertyInfo? HasBeenInInventoryProperty = typeof(SObject).GetProperty("hasBeenInInventory", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
     private readonly IMonitor Monitor;
     private readonly ModConfig Config;
@@ -46,7 +43,7 @@ public sealed class TaxService
         int usedTillableTiles = this.CountUsedTillableTiles();
         int landUseTax = this.CalculateLandUseTax(usedTillableTiles);
         int automationMachineCount = this.CountAutomationMachines();
-        int automationTax = (int)Math.Round(Math.Sqrt(automationMachineCount) * Math.Max(0, this.Config.Taxes.AutomationRate), MidpointRounding.AwayFromZero);
+        int automationTax = this.CalculateAutomationTax(automationMachineCount);
 
         if (UsesSeparateWallets())
         {
@@ -58,6 +55,21 @@ public sealed class TaxService
         this.AssessFarmTaxes(usedTillableTiles, landUseTax, automationMachineCount, automationTax);
     }
 
+    public void ReconcileAutomationTaxRules()
+    {
+        if (this.State.AutomationTaxRuleVersion >= CurrentAutomationTaxRuleVersion)
+            return;
+
+        int currentMachineCount = this.CountAutomationMachines();
+        int currentAutomationTax = this.CalculateAutomationTax(currentMachineCount);
+        if (this.State.UsesPlayerTaxLedgers)
+            this.ReconcilePlayerAutomationTax(currentMachineCount, currentAutomationTax);
+        else
+            this.ReconcileFarmAutomationTax(currentMachineCount, currentAutomationTax);
+
+        this.State.AutomationTaxRuleVersion = CurrentAutomationTaxRuleVersion;
+    }
+
     private void CollectFarmDueTaxes()
     {
         TaxLedger ledger = this.State.TaxLedger;
@@ -65,6 +77,7 @@ public sealed class TaxService
         if (due <= 0)
         {
             ledger.LastCollectedTaxes = 0;
+            ledger.LastUnpaidTaxPenalty = 0;
             return;
         }
 
@@ -76,13 +89,16 @@ public sealed class TaxService
         int remaining = due - paid;
         if (remaining > 0)
         {
-            int penalty = (int)Math.Ceiling(remaining * Math.Clamp(this.Config.Taxes.UnpaidTaxPenalty, 0, 1));
+            int penalty = this.CalculateUnpaidTaxPenalty(remaining);
             ledger.UnpaidTaxes = remaining + penalty;
-            this.Monitor.Log($"Collected {paid}g in taxes; {ledger.UnpaidTaxes}g remains unpaid after penalty.", LogLevel.Info);
+            ledger.LastUnpaidTaxPenalty = penalty;
+            string penaltySuffix = penalty > 0 ? $" after a {penalty}g late fee" : "";
+            this.Monitor.Log($"Collected {paid}g in taxes; {ledger.UnpaidTaxes}g remains unpaid{penaltySuffix}.", LogLevel.Info);
         }
         else
         {
             ledger.UnpaidTaxes = 0;
+            ledger.LastUnpaidTaxPenalty = 0;
             if (paid > 0)
                 this.Monitor.Log($"Collected {paid}g in taxes.", LogLevel.Info);
         }
@@ -114,6 +130,22 @@ public sealed class TaxService
             this.Monitor.Log($"Assessed {total}g in taxes for tomorrow.", LogLevel.Trace);
     }
 
+    private void ReconcileFarmAutomationTax(int currentMachineCount, int currentAutomationTax)
+    {
+        TaxLedger ledger = this.State.TaxLedger;
+        int previousAutomationTax = Math.Max(0, ledger.LastAutomationTax);
+        int correctedAutomationTax = Math.Min(previousAutomationTax, currentAutomationTax);
+        int removed = RemoveOutstandingTaxes(ledger, previousAutomationTax - correctedAutomationTax);
+        if (removed <= 0)
+            return;
+
+        ledger.LastAutomationTax = correctedAutomationTax;
+        ledger.LastAutomationMachineCount = currentMachineCount;
+        ledger.LastAssessedTaxes = Math.Max(0, ledger.LastAssessedTaxes - removed);
+        ledger.LifetimeAssessedTaxes = Math.Max(0, ledger.LifetimeAssessedTaxes - removed);
+        this.Monitor.Log($"Removed {removed}g of invalid automation tax from the outstanding bill.", LogLevel.Info);
+    }
+
     private void CollectPlayerDueTaxes()
     {
         this.PrepareForSeparateWallets();
@@ -126,6 +158,7 @@ public sealed class TaxService
             if (due <= 0)
             {
                 ledger.LastCollectedTaxes = 0;
+                ledger.LastUnpaidTaxPenalty = 0;
                 continue;
             }
 
@@ -135,16 +168,19 @@ public sealed class TaxService
                 farmer.Money -= paid;
 
             int remaining = due - paid;
-            ledger.UnpaidTaxes = remaining > 0
-                ? remaining + (int)Math.Ceiling(remaining * Math.Clamp(this.Config.Taxes.UnpaidTaxPenalty, 0, 1))
-                : 0;
+            int penalty = remaining > 0 ? this.CalculateUnpaidTaxPenalty(remaining) : 0;
+            ledger.UnpaidTaxes = remaining + penalty;
+            ledger.LastUnpaidTaxPenalty = penalty;
             ledger.PendingTaxes = 0;
             ledger.LastCollectedTaxes = paid;
             ledger.LifetimeCollectedTaxes += paid;
             totalCollected += paid;
 
             if (remaining > 0)
-                this.Monitor.Log($"Collected {paid}g from {farmer.Name}; {ledger.UnpaidTaxes}g remains unpaid after penalty.", LogLevel.Info);
+            {
+                string penaltySuffix = penalty > 0 ? $" after a {penalty}g late fee" : "";
+                this.Monitor.Log($"Collected {paid}g from {farmer.Name}; {ledger.UnpaidTaxes}g remains unpaid{penaltySuffix}.", LogLevel.Info);
+            }
         }
 
         this.State.TaxLedger.LifetimeCollectedTaxes += totalCollected;
@@ -187,6 +223,33 @@ public sealed class TaxService
 
         if (totalAssessed > 0)
             this.Monitor.Log($"Assessed {totalAssessed}g in player taxes for tomorrow.", LogLevel.Trace);
+    }
+
+    private void ReconcilePlayerAutomationTax(int currentMachineCount, int currentAutomationTax)
+    {
+        IReadOnlyList<Farmer> farmers = this.GetTaxableFarmers();
+        Dictionary<long, int> correctedShares = this.AllocateSharedCost(currentAutomationTax, farmers);
+        int totalRemoved = 0;
+
+        foreach (Farmer farmer in farmers)
+        {
+            PlayerTaxLedger ledger = this.GetOrCreatePlayerLedger(farmer);
+            int previousAutomationTax = Math.Max(0, ledger.LastAutomationTax);
+            int correctedAutomationTax = Math.Min(previousAutomationTax, correctedShares.GetValueOrDefault(farmer.UniqueMultiplayerID));
+            int removed = RemoveOutstandingTaxes(ledger, previousAutomationTax - correctedAutomationTax);
+            if (removed <= 0)
+                continue;
+
+            ledger.LastAutomationTax = correctedAutomationTax;
+            ledger.LastAssessedTaxes = Math.Max(0, ledger.LastAssessedTaxes - removed);
+            ledger.LifetimeAssessedTaxes = Math.Max(0, ledger.LifetimeAssessedTaxes - removed);
+            totalRemoved += removed;
+        }
+
+        this.State.TaxLedger.LifetimeAssessedTaxes = Math.Max(0, this.State.TaxLedger.LifetimeAssessedTaxes - totalRemoved);
+        this.SyncFarmTaxOverview(automationMachineCount: currentMachineCount);
+        if (totalRemoved > 0)
+            this.Monitor.Log($"Removed {totalRemoved}g of invalid automation tax from outstanding player bills.", LogLevel.Info);
     }
 
     private IReadOnlyList<Farmer> GetTaxableFarmers()
@@ -296,6 +359,7 @@ public sealed class TaxService
         farmLedger.UnpaidTaxes = playerLedgers.Sum(ledger => ledger.UnpaidTaxes);
         farmLedger.LastAssessedTaxes = playerLedgers.Sum(ledger => ledger.LastAssessedTaxes);
         farmLedger.LastCollectedTaxes = playerLedgers.Sum(ledger => ledger.LastCollectedTaxes);
+        farmLedger.LastUnpaidTaxPenalty = playerLedgers.Sum(ledger => ledger.LastUnpaidTaxPenalty);
         farmLedger.LastIncomeTax = playerLedgers.Sum(ledger => ledger.LastIncomeTax);
         farmLedger.LastLandUseTax = playerLedgers.Sum(ledger => ledger.LastLandUseTax);
         farmLedger.LastAutomationTax = playerLedgers.Sum(ledger => ledger.LastAutomationTax);
@@ -336,6 +400,14 @@ public sealed class TaxService
         return Math.Max(0, (int)Math.Round(income * Math.Clamp(rate, 0, 1), MidpointRounding.AwayFromZero));
     }
 
+    private int CalculateUnpaidTaxPenalty(int remaining)
+    {
+        if (!this.Config.Taxes.ApplyUnpaidTaxPenalty || remaining <= 0)
+            return 0;
+
+        return (int)Math.Ceiling(remaining * Math.Clamp(this.Config.Taxes.UnpaidTaxPenalty, 0, 1));
+    }
+
     private int CalculateLandUseTax(int usedTiles)
     {
         if (usedTiles <= this.Config.Taxes.FreeLandUseTiles)
@@ -350,6 +422,11 @@ public sealed class TaxService
             rate = this.Config.Taxes.HighLandUseTaxPerTile;
 
         return Math.Max(0, usedTiles * Math.Max(0, rate));
+    }
+
+    private int CalculateAutomationTax(int machineCount)
+    {
+        return (int)Math.Round(Math.Sqrt(machineCount) * Math.Max(0, this.Config.Taxes.AutomationRate), MidpointRounding.AwayFromZero);
     }
 
     private int CountUsedTillableTiles()
@@ -374,27 +451,92 @@ public sealed class TaxService
 
     private int CountAutomationMachines()
     {
+        HashSet<string> machineIds = this.GetProductionMachineIds();
+        if (machineIds.Count == 0)
+            return 0;
+
         int count = 0;
-        foreach (GameLocation location in Game1.locations)
+        foreach (GameLocation location in this.GetFarmOwnedLocations())
         {
             foreach (SObject obj in location.objects.Values)
             {
-                if (IsAutomationMachine(obj))
+                if (IsAutomationMachine(obj, machineIds, location is Cellar))
                     count++;
             }
-        }
-
-        foreach (Item? item in Game1.player.Items)
-        {
-            if (item is SObject obj && IsAutomationMachine(obj))
-                count += Math.Max(1, obj.Stack);
         }
 
         return count;
     }
 
-    private static bool IsAutomationMachine(SObject obj)
+    private IEnumerable<GameLocation> GetFarmOwnedLocations()
     {
-        return obj.bigCraftable.Value && AutomationMachineNames.Contains(obj.Name);
+        Farm farm = Game1.getFarm();
+        HashSet<GameLocation> locations = new() { farm };
+        foreach (Building building in farm.buildings)
+        {
+            GameLocation? indoors = building.GetIndoors();
+            if (indoors is not null)
+            {
+                locations.Add(indoors);
+                if (indoors is FarmHouse farmhouse
+                    && farmhouse.upgradeLevel >= 3
+                    && farmhouse.GetCellar() is GameLocation cellar)
+                    locations.Add(cellar);
+            }
+        }
+
+        return locations;
+    }
+
+    private HashSet<string> GetProductionMachineIds()
+    {
+        try
+        {
+            return DataLoader.Machines(Game1.content)
+                .Where(pair => pair.Value.OutputRules?.Count > 0)
+                .Select(pair => pair.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Could not load machine data for automation tax: {ex.Message}", LogLevel.Trace);
+            return [];
+        }
+    }
+
+    private static bool IsAutomationMachine(SObject obj, ISet<string> machineIds, bool isUnlockedCellar)
+    {
+        return obj.bigCraftable.Value
+            && (WasPlacedByPlayer(obj) || isUnlockedCellar)
+            && !string.IsNullOrWhiteSpace(obj.QualifiedItemId)
+            && machineIds.Contains(obj.QualifiedItemId);
+    }
+
+    private static bool WasPlacedByPlayer(SObject obj)
+    {
+        object? value = HasBeenInInventoryField?.GetValue(obj) ?? HasBeenInInventoryProperty?.GetValue(obj);
+        if (value is bool result)
+            return result;
+
+        PropertyInfo? valueProperty = value?.GetType().GetProperty("Value", BindingFlags.Instance | BindingFlags.Public);
+        return valueProperty?.GetValue(value) is bool netResult && netResult;
+    }
+
+    private static int RemoveOutstandingTaxes(TaxLedger ledger, int amount)
+    {
+        int removedFromPending = Math.Min(Math.Max(0, amount), Math.Max(0, ledger.PendingTaxes));
+        ledger.PendingTaxes -= removedFromPending;
+        int removedFromUnpaid = Math.Min(Math.Max(0, amount - removedFromPending), Math.Max(0, ledger.UnpaidTaxes));
+        ledger.UnpaidTaxes -= removedFromUnpaid;
+        return removedFromPending + removedFromUnpaid;
+    }
+
+    private static int RemoveOutstandingTaxes(PlayerTaxLedger ledger, int amount)
+    {
+        int removedFromPending = Math.Min(Math.Max(0, amount), Math.Max(0, ledger.PendingTaxes));
+        ledger.PendingTaxes -= removedFromPending;
+        int removedFromUnpaid = Math.Min(Math.Max(0, amount - removedFromPending), Math.Max(0, ledger.UnpaidTaxes));
+        ledger.UnpaidTaxes -= removedFromUnpaid;
+        return removedFromPending + removedFromUnpaid;
     }
 }

@@ -2,7 +2,7 @@ namespace HarvestLedger.Framework;
 
 public sealed class LedgerSaveData
 {
-    public int SchemaVersion { get; set; } = 3;
+    public int SchemaVersion { get; set; } = 5;
     public string LastUpdatedOn { get; set; } = "";
     public string CurrentSeasonKey { get; set; } = "";
     public string SubsidizedCropItemId { get; set; } = "";
@@ -31,11 +31,12 @@ public sealed class LedgerSaveData
     public Dictionary<long, PlayerTaxLedger> PlayerTaxLedgers { get; set; } = new();
     public Dictionary<long, List<int>> RecentShippingIncomeByPlayerId { get; set; } = new();
     public bool UsesPlayerTaxLedgers { get; set; }
+    public int AutomationTaxRuleVersion { get; set; }
 
     public void EnsureValid()
     {
-        if (this.SchemaVersion < 3)
-            this.SchemaVersion = 3;
+        if (this.SchemaVersion < 5)
+            this.SchemaVersion = 5;
 
         this.CurrentSeasonKey ??= "";
         this.SubsidizedCropItemId ??= "";

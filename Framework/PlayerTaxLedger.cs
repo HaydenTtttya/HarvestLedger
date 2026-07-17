@@ -6,6 +6,7 @@ public sealed class PlayerTaxLedger
     public string LastKnownPlayerName { get; set; } = "";
     public int PendingTaxes { get; set; }
     public int UnpaidTaxes { get; set; }
+    public int LastUnpaidTaxPenalty { get; set; }
     public int LastShippingIncome { get; set; }
     public int LastIncomeTax { get; set; }
     public int LastLandUseTax { get; set; }

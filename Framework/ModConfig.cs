@@ -13,4 +13,12 @@ public sealed class ModConfig
     public DynamicPricingConfig DynamicPricing { get; set; } = new();
     public StaminaConfig Stamina { get; set; } = new();
     public TaxConfig Taxes { get; set; } = new();
+
+    public void EnsureValid()
+    {
+        this.MenuKey ??= KeybindList.Parse("F8");
+        this.DynamicPricing ??= new DynamicPricingConfig();
+        this.Stamina ??= new StaminaConfig();
+        this.Taxes ??= new TaxConfig();
+    }
 }

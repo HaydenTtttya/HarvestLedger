@@ -42,6 +42,7 @@ public sealed class ModEntry : Mod
     public override void Entry(IModHelper helper)
     {
         this.Config = helper.ReadConfig<ModConfig>();
+        this.Config.EnsureValid();
         this.State = new LedgerSaveData();
         this.UseLocalEconomySettings();
         this.RebuildServices();
@@ -76,6 +77,9 @@ public sealed class ModEntry : Mod
         this.State.EnsureValid();
         this.UseLocalEconomySettings();
         this.RebuildServices();
+
+        if (this.Config.EnableTaxSystem && this.IsEconomyAuthority)
+            this.Taxes.ReconcileAutomationTaxRules();
 
         if (this.IsDynamicPricingEnabled)
         {
@@ -242,6 +246,7 @@ public sealed class ModEntry : Mod
     private void ResetConfig()
     {
         this.Config = new ModConfig();
+        this.Config.EnsureValid();
         if (this.IsEconomyAuthority || !this.HasAuthoritativeState)
             this.UseLocalEconomySettings();
 
@@ -250,6 +255,7 @@ public sealed class ModEntry : Mod
 
     private void SaveConfig()
     {
+        this.Config.EnsureValid();
         this.Helper.WriteConfig(this.Config);
         if (this.IsEconomyAuthority || !this.HasAuthoritativeState)
             this.UseLocalEconomySettings();
@@ -278,6 +284,7 @@ public sealed class ModEntry : Mod
 
     private void UseLocalEconomySettings()
     {
+        this.Config.EnsureValid();
         this.EffectiveDynamicPricingConfig = this.Config.DynamicPricing;
         this.EffectiveStaminaConfig = this.Config.Stamina;
         this.HostDynamicPricingEnabled = this.Config.EnableDynamicPricing;

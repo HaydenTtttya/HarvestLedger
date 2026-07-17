@@ -4,6 +4,8 @@ using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
 using StardewValley;
+using StardewValley.GameData;
+using StardewValley.GameData.Crops;
 using StardewValley.GameData.Objects;
 using StardewValley.TerrainFeatures;
 using SObject = StardewValley.Object;
@@ -78,8 +80,15 @@ public sealed class DynamicPricingService
 
         string seasonKey = GetSeasonKey();
         bool changed = !string.Equals(this.State.CurrentSeasonKey, seasonKey, StringComparison.Ordinal);
+        bool subsidyNeedsRefresh = !this.IsCurrentSubsidyCropEligible();
         if (!changed && this.State.DemandEvents.Count > 0 && !string.IsNullOrWhiteSpace(this.State.SubsidizedCropItemId))
-            return false;
+        {
+            if (!subsidyNeedsRefresh)
+                return false;
+
+            this.ChooseSubsidizedCrop(seasonKey);
+            return true;
+        }
 
         this.State.CurrentSeasonKey = seasonKey;
         this.State.MarketPressureByItemId.Clear();
@@ -260,10 +269,12 @@ public sealed class DynamicPricingService
             return;
 
         (int subsidizedCount, int totalCount) = this.CountFarmCrops(this.State.SubsidizedCropItemId);
-        bool conditionMet = totalCount > 0 && subsidizedCount >= 25 && subsidizedCount / (double)totalCount >= 0.25;
+        int requiredCount = this.Config.GetSubsidyCropRequirement(totalCount);
+        bool conditionMet = totalCount > 0 && subsidizedCount >= requiredCount;
 
         this.State.LastDay.SubsidizedCropCount = subsidizedCount;
         this.State.LastDay.TotalCropCount = totalCount;
+        this.State.LastDay.SubsidyRequiredCropCount = requiredCount;
         this.State.LastDay.SubsidyConditionMet = conditionMet;
 
         if (conditionMet)
@@ -740,7 +751,10 @@ public sealed class DynamicPricingService
         IEnumerable<KeyValuePair<string, ObjectData>> objectData = Game1.objectData is null
             ? Enumerable.Empty<KeyValuePair<string, ObjectData>>()
             : Game1.objectData;
+        HashSet<string> eligibleHarvests = this.GetCurrentSeasonCropHarvests();
         List<(string ItemId, string Name)> crops = objectData
+            .Where(pair => IsBaseGameObjectId(pair.Key))
+            .Where(pair => eligibleHarvests.Contains(MarketItemIdentity.NormalizeObjectId(pair.Key)))
             .Where(pair => IsSubsidyCropCandidate(pair.Value))
             .Select(pair => (ItemId: $"(O){pair.Key}", Name: pair.Value.Name ?? pair.Key))
             .OrderBy(pair => pair.ItemId, StringComparer.Ordinal)
@@ -757,6 +771,71 @@ public sealed class DynamicPricingService
         (string itemId, string name) = crops[random.Next(crops.Count)];
         this.State.SubsidizedCropItemId = itemId;
         this.State.SubsidizedCropName = name;
+    }
+
+    private HashSet<string> GetCurrentSeasonCropHarvests()
+    {
+        string season = Game1.currentSeason;
+        if (string.IsNullOrWhiteSpace(season) || Game1.cropData is null)
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        return Game1.cropData
+            .Where(pair => CropGrowsInSeason(pair.Value, season))
+            .Where(pair => IsCropPlantableOnFarm(pair.Value))
+            .Select(pair => pair.Value.HarvestItemId)
+            .Where(itemId => !string.IsNullOrWhiteSpace(itemId))
+            .Select(MarketItemIdentity.NormalizeObjectId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool CropGrowsInSeason(CropData crop, string season)
+    {
+        return crop.Seasons?.Any(value => string.Equals(Convert.ToString(value), season, StringComparison.OrdinalIgnoreCase)) == true;
+    }
+
+    private static bool IsBaseGameObjectId(string itemId)
+    {
+        return int.TryParse(itemId, out _);
+    }
+
+    private static bool IsCropPlantableOnFarm(CropData crop)
+    {
+        try
+        {
+            Farm farm = Game1.getFarm();
+            foreach (PlantableRule rule in crop.PlantableLocationRules ?? [])
+            {
+                if (!rule.ShouldApplyWhen(isGardenPot: false))
+                    continue;
+
+                bool applies = string.IsNullOrWhiteSpace(rule.Condition)
+                    || GameStateQuery.CheckConditions(rule.Condition, farm, Game1.player, null, null, null, null);
+                if (applies && rule.Result == PlantableResult.Deny)
+                    return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool IsCurrentSubsidyCropEligible()
+    {
+        string currentSubsidyId = this.State.SubsidizedCropItemId;
+        if (string.IsNullOrWhiteSpace(currentSubsidyId)
+            || Game1.objectData is null
+            || !Game1.objectData.TryGetValue(MarketItemIdentity.GetRawObjectId(currentSubsidyId), out ObjectData? itemData))
+        {
+            return false;
+        }
+
+        string rawItemId = MarketItemIdentity.GetRawObjectId(currentSubsidyId);
+        return IsBaseGameObjectId(rawItemId)
+            && this.GetCurrentSeasonCropHarvests().Contains(MarketItemIdentity.NormalizeObjectId(currentSubsidyId))
+            && IsSubsidyCropCandidate(itemData);
     }
 
     private void GenerateDemandEvents(string seasonKey)

@@ -10,6 +10,7 @@ public sealed class LedgerDaySnapshot
     public double MarketPressure { get; set; }
     public int TotalCropCount { get; set; }
     public int SubsidizedCropCount { get; set; }
+    public int SubsidyRequiredCropCount { get; set; }
     public bool SubsidyConditionMet { get; set; }
     public double DailyRecoveryRate { get; set; }
     public int DistinctSoldCategoryCount { get; set; }
@@ -43,6 +44,7 @@ public sealed class LedgerDaySnapshot
         this.MarketPressure = 0;
         this.TotalCropCount = 0;
         this.SubsidizedCropCount = 0;
+        this.SubsidyRequiredCropCount = 0;
         this.SubsidyConditionMet = false;
         this.DailyRecoveryRate = 0;
         this.DistinctSoldCategoryCount = 0;

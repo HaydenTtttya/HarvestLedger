@@ -8,6 +8,12 @@ PROJECT_DIR="${0:A:h}"
 PROJECT_FILE="$PROJECT_DIR/HarvestLedger.csproj"
 PACKAGE_NAME="HarvestLedger"
 OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/releases}"
+DOTNET_COMMAND="${DOTNET_COMMAND:-dotnet}"
+HARVEST_TARGETING_PACK_ROOT="${HARVEST_TARGETING_PACK_ROOT:-}"
+
+if [[ -z "$HARVEST_TARGETING_PACK_ROOT" && -d /opt/homebrew/opt/dotnet@6/libexec/packs/Microsoft.NETCore.App.Ref ]]; then
+    HARVEST_TARGETING_PACK_ROOT="/opt/homebrew/opt/dotnet@6/libexec/packs"
+fi
 
 if [[ ! -f "$PROJECT_FILE" ]]; then
     print -u2 -- "Could not find HarvestLedger.csproj next to this script."
@@ -22,7 +28,7 @@ if [[ ! "$RELEASE_VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$' ]]
     exit 1
 fi
 
-for REQUIRED_COMMAND in dotnet rsync zip unzip perl; do
+for REQUIRED_COMMAND in "$DOTNET_COMMAND" rsync zip unzip perl; do
     if ! command -v "$REQUIRED_COMMAND" >/dev/null 2>&1; then
         print -u2 -- "Required command not found: $REQUIRED_COMMAND"
         exit 1
@@ -39,8 +45,13 @@ if [[ -e "$ARCHIVE_PATH" ]]; then
     exit 1
 fi
 
+BUILD_OPTIONS=(-p:Version="$RELEASE_VERSION" -p:EnableModZip=false)
+if [[ -n "$HARVEST_TARGETING_PACK_ROOT" ]]; then
+    BUILD_OPTIONS+=("-p:NetCoreTargetingPackRoot=$HARVEST_TARGETING_PACK_ROOT")
+fi
+
 print -- "Building $PACKAGE_NAME $RELEASE_VERSION..."
-dotnet build "$PROJECT_FILE" -c Release --no-restore -p:Version="$RELEASE_VERSION" -p:EnableModZip=false
+"$DOTNET_COMMAND" build "$PROJECT_FILE" -c Release --no-restore "${BUILD_OPTIONS[@]}"
 
 ASSEMBLY_PATH="$PROJECT_DIR/bin/Release/net6.0/$PACKAGE_NAME.dll"
 if [[ ! -f "$ASSEMBLY_PATH" ]]; then

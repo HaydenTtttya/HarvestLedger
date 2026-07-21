@@ -117,7 +117,7 @@ There are still limits:
 
 ### Multiplayer
 
-Harvest Ledger 0.4.5 supports online and split-screen farms. Install the same version on the host and every farmhand; a farmhand without the mod will only see vanilla item prices.
+Harvest Ledger 0.4.7 supports online and split-screen farms. Install the same version on the host and every farmhand; a farmhand without the mod will only see vanilla item prices.
 
 The host owns the economy state. It runs the daily shipping and tax settlement, saves the ledger, and sends the current market state and economy settings when someone joins. Farmhands use that state for their price display and ledger, but never write a competing copy of the save data. This keeps demand, subsidies, crop rotation, and tax totals from being applied once per player.
 
@@ -132,7 +132,7 @@ Generic Mod Config Menu is optional. If installed, it provides an in-game config
 ## Installation
 
 1. Install SMAPI.
-2. Download or build `HarvestLedger 0.4.5`.
+2. Download or build `HarvestLedger 0.4.7`.
 3. Unzip it into your Stardew Valley `Mods` folder.
 4. Launch the game through SMAPI.
 5. Open a save and press `F8` to open the ledger.

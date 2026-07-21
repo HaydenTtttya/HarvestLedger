@@ -1,4 +1,3 @@
-using System.Reflection;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Buildings;
@@ -11,9 +10,7 @@ namespace HarvestLedger.Framework.Services;
 
 public sealed class TaxService
 {
-    private const int CurrentAutomationTaxRuleVersion = 2;
-    private static readonly FieldInfo? HasBeenInInventoryField = typeof(SObject).GetField("hasBeenInInventory", BindingFlags.Instance | BindingFlags.NonPublic);
-    private static readonly PropertyInfo? HasBeenInInventoryProperty = typeof(SObject).GetProperty("hasBeenInInventory", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+    private const int CurrentAutomationTaxRuleVersion = 7;
 
     private readonly IMonitor Monitor;
     private readonly ModConfig Config;
@@ -136,11 +133,11 @@ public sealed class TaxService
         int previousAutomationTax = Math.Max(0, ledger.LastAutomationTax);
         int correctedAutomationTax = Math.Min(previousAutomationTax, currentAutomationTax);
         int removed = RemoveOutstandingTaxes(ledger, previousAutomationTax - correctedAutomationTax);
+        ledger.LastAutomationMachineCount = currentMachineCount;
         if (removed <= 0)
             return;
 
         ledger.LastAutomationTax = correctedAutomationTax;
-        ledger.LastAutomationMachineCount = currentMachineCount;
         ledger.LastAssessedTaxes = Math.Max(0, ledger.LastAssessedTaxes - removed);
         ledger.LifetimeAssessedTaxes = Math.Max(0, ledger.LifetimeAssessedTaxes - removed);
         this.Monitor.Log($"Removed {removed}g of invalid automation tax from the outstanding bill.", LogLevel.Info);
@@ -460,8 +457,16 @@ public sealed class TaxService
         {
             foreach (SObject obj in location.objects.Values)
             {
-                if (IsAutomationMachine(obj, machineIds, location is Cellar))
-                    count++;
+                if (!obj.bigCraftable.Value)
+                    continue;
+
+                if (!WasPlacedByPlayer(obj))
+                    continue;
+
+                if (!machineIds.Contains(NormalizeMachineId(obj.QualifiedItemId)))
+                    continue;
+
+                count++;
             }
         }
 
@@ -472,16 +477,21 @@ public sealed class TaxService
     {
         Farm farm = Game1.getFarm();
         HashSet<GameLocation> locations = new() { farm };
+        if (Game1.getLocationFromName("FarmHouse") is FarmHouse farmhouse)
+            AddFarmHouseAndCellar(locations, farmhouse);
+
+        GameLocation? farmCave = Game1.getLocationFromName("FarmCave");
+        if (farmCave is not null)
+            locations.Add(farmCave);
+
         foreach (Building building in farm.buildings)
         {
             GameLocation? indoors = building.GetIndoors();
             if (indoors is not null)
             {
                 locations.Add(indoors);
-                if (indoors is FarmHouse farmhouse
-                    && farmhouse.upgradeLevel >= 3
-                    && farmhouse.GetCellar() is GameLocation cellar)
-                    locations.Add(cellar);
+                if (indoors is FarmHouse buildingFarmhouse)
+                    AddFarmHouseAndCellar(locations, buildingFarmhouse);
             }
         }
 
@@ -494,7 +504,8 @@ public sealed class TaxService
         {
             return DataLoader.Machines(Game1.content)
                 .Where(pair => pair.Value.OutputRules?.Count > 0)
-                .Select(pair => pair.Key)
+                .Select(pair => NormalizeMachineId(pair.Key))
+                .Where(itemId => !string.IsNullOrWhiteSpace(itemId))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception ex)
@@ -504,22 +515,28 @@ public sealed class TaxService
         }
     }
 
-    private static bool IsAutomationMachine(SObject obj, ISet<string> machineIds, bool isUnlockedCellar)
+    private static string NormalizeMachineId(string? itemId)
     {
-        return obj.bigCraftable.Value
-            && (WasPlacedByPlayer(obj) || isUnlockedCellar)
-            && !string.IsNullOrWhiteSpace(obj.QualifiedItemId)
-            && machineIds.Contains(obj.QualifiedItemId);
+        if (string.IsNullOrWhiteSpace(itemId))
+            return "";
+
+        string normalized = itemId.Trim();
+        int prefixEnd = normalized.IndexOf(')');
+        return normalized.StartsWith("(", StringComparison.Ordinal) && prefixEnd >= 0
+            ? normalized[(prefixEnd + 1)..]
+            : normalized;
+    }
+
+    private static void AddFarmHouseAndCellar(ISet<GameLocation> locations, FarmHouse farmhouse)
+    {
+        locations.Add(farmhouse);
+        if (farmhouse.upgradeLevel >= 3 && farmhouse.GetCellar() is GameLocation cellar)
+            locations.Add(cellar);
     }
 
     private static bool WasPlacedByPlayer(SObject obj)
     {
-        object? value = HasBeenInInventoryField?.GetValue(obj) ?? HasBeenInInventoryProperty?.GetValue(obj);
-        if (value is bool result)
-            return result;
-
-        PropertyInfo? valueProperty = value?.GetType().GetProperty("Value", BindingFlags.Instance | BindingFlags.Public);
-        return valueProperty?.GetValue(value) is bool netResult && netResult;
+        return obj.owner.Value != 0;
     }
 
     private static int RemoveOutstandingTaxes(TaxLedger ledger, int amount)

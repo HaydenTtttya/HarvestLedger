@@ -35,7 +35,9 @@ public sealed class ModEntry : Mod
     private Texture2D? TaxIcon;
     private Texture2D? MainIcon;
 
-    private bool IsEconomyAuthority => Context.IsMainPlayer;
+    // Save data belongs to the game host. Context.IsMainPlayer can be true while a
+    // remote client is loading, so use the game-level host flag for all authority checks.
+    private bool IsEconomyAuthority => Game1.IsMasterGame;
     private bool IsDynamicPricingEnabled => this.IsEconomyAuthority
         ? this.Config.EnableDynamicPricing
         : this.HasAuthoritativeState && this.HostDynamicPricingEnabled;

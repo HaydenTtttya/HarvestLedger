@@ -1,5 +1,6 @@
 bin/
 obj/
+releases/
 *.user
 *.suo
 .DS_Store

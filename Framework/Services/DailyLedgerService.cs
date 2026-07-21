@@ -23,18 +23,19 @@ public sealed class DailyLedgerService
         this.State.LastDay.Reset();
         this.DynamicPricing.EvaluateSeasonalSubsidy();
 
-        foreach (Item? item in this.GetShippingBinItems())
+        foreach ((Farmer farmer, Item item) in this.GetShippingBinItems())
         {
-            if (item is null)
-                continue;
-
             this.State.LastDay.TrackedStacks++;
             int estimatedValue = this.DynamicPricing.EstimateSaleValue(item, this.Config.EnableDynamicPricing);
             this.State.LastDay.GrossShippingIncome += estimatedValue;
+            this.State.LastDay.ShippingIncomeByPlayerId[farmer.UniqueMultiplayerID] =
+                this.State.LastDay.ShippingIncomeByPlayerId.GetValueOrDefault(farmer.UniqueMultiplayerID) + estimatedValue;
 
             if (this.Config.EnableDynamicPricing)
                 this.DynamicPricing.TrackSoldItem(item, estimatedValue);
         }
+
+        this.RecordRecentShippingIncome();
 
         this.State.LastDay.DistinctSoldCategoryCount = this.State.LastDay.SoldByCategory.Count(pair => pair.Value > 0);
         this.State.LastDay.HadSales = this.State.LastDay.SoldItemCount > 0;
@@ -58,7 +59,7 @@ public sealed class DailyLedgerService
             $"pending taxes={this.State.TaxLedger.PendingTaxes}g.";
     }
 
-    private IEnumerable<Item?> GetShippingBinItems()
+    private IEnumerable<(Farmer Farmer, Item Item)> GetShippingBinItems()
     {
         if (!Context.IsWorldReady)
             yield break;
@@ -84,8 +85,25 @@ public sealed class DailyLedgerService
             foreach (Item? item in bin)
             {
                 if (item is not null && seenItems.Add(item))
-                    yield return item;
+                    yield return (farmer, item);
             }
+        }
+    }
+
+    private void RecordRecentShippingIncome()
+    {
+        foreach (Farmer farmer in Game1.getAllFarmers().GroupBy(player => player.UniqueMultiplayerID).Select(group => group.First()))
+        {
+            long playerId = farmer.UniqueMultiplayerID;
+            if (!this.State.RecentShippingIncomeByPlayerId.TryGetValue(playerId, out List<int>? incomeHistory))
+            {
+                incomeHistory = new List<int>();
+                this.State.RecentShippingIncomeByPlayerId[playerId] = incomeHistory;
+            }
+
+            incomeHistory.Add(Math.Max(0, this.State.LastDay.ShippingIncomeByPlayerId.GetValueOrDefault(playerId)));
+            while (incomeHistory.Count > 7)
+                incomeHistory.RemoveAt(0);
         }
     }
 }

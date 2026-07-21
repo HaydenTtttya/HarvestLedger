@@ -9,6 +9,8 @@ public sealed class DynamicPricingConfig
     public double BaseRecovery { get; set; } = 0.06;
     public double MaxDiversityRecovery { get; set; } = 0.05;
     public double SubsidyRecovery { get; set; } = 0.02;
+    public double SubsidyCropCurveScale { get; set; } = 2;
+    public int SubsidyMaximumCropCount { get; set; } = 64;
     public double ExposurePenaltyCap { get; set; } = 0.10;
     public double MaxProcessingTraceBonus { get; set; } = 0.05;
     public double ApiaryRadius { get; set; } = 5;
@@ -51,4 +53,15 @@ public sealed class DynamicPricingConfig
     };
 
     public HashSet<string> ExemptItemIds { get; set; } = [];
+
+    public int GetSubsidyCropRequirement(int totalCropCount)
+    {
+        int maximum = Math.Clamp(this.SubsidyMaximumCropCount, 1, 500);
+        if (totalCropCount <= 0)
+            return 1;
+
+        double curveScale = Math.Clamp(this.SubsidyCropCurveScale, 0.1, 10);
+        int curvedRequirement = (int)Math.Ceiling(curveScale * Math.Sqrt(totalCropCount));
+        return Math.Min(totalCropCount, Math.Min(maximum, curvedRequirement));
+    }
 }

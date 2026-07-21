@@ -48,8 +48,9 @@ The ledger shows:
 - pending taxes
 - active or upcoming demand events
 - subsidy and crop rotation policy state
+- an optional detailed breakdown of the latest tax bill
 - base price, current price, pressure, and trend per item
-- filters for farm products, fish, mine goods, and all tracked prices
+- filters for farm products, fish, mine goods, and all registered item prices, including compatible mod items
 - search across item names, categories, IDs, and processed-ingredient names
 
 The ledger uses actual item icons where possible and includes generated rows for likely processed goods, so artisan outputs are visible even before every variant has been shipped.
@@ -72,7 +73,7 @@ This data is saved per save file through SMAPI save data.
 
 Each season can generate demand events such as town festivals, pantry restocks, mine supply orders, or fish market shortages. These events temporarily lift related categories.
 
-The mod also chooses a seasonal subsidized crop. Keeping that crop meaningfully present in your farm plan can improve demand recovery and reduce taxes over time.
+The mod chooses a seasonal subsidized crop from the base game `Data/Crops`. Candidates must grow in the current season and be plantable in open farm soil, so fruit tree products and indoor-only crops are not eligible. The default target is twice the square root of planted crops, capped at 64; both values are configurable. Keeping that crop meaningfully present in your farm plan can improve demand recovery and reduce taxes over time.
 
 ### Taxes
 
@@ -82,11 +83,11 @@ It currently includes:
 
 - bracketed income tax
 - land use tax based on tilled farm tiles
-- automation tax based on common processing machines
+- automation tax based on functional production machines registered in `Data/Machines` and placed on the farm or in its buildings; map-template objects are excluded unless they are the casks unlocked with the player's cellar (never machines elsewhere in the world or in a player's inventory)
 - subsidy reductions
-- unpaid-tax penalties when the player cannot cover the bill
+- an optional unpaid-tax penalty when the player cannot cover the bill
 
-Tax values are configurable.
+Tax values are configurable. Late fees are off by default, so unpaid balances stay outstanding instead of compounding every morning. Enable `Taxes.ApplyUnpaidTaxPenalty` if a save specifically wants that pressure. The ledger's **Show tax overview button** setting adds a floating tax bill to the F8 menu, with the latest shipping, income, land, machine, subsidy, outstanding, and late-fee amounts.
 
 ### Stamina balancing
 
@@ -116,11 +117,11 @@ There are still limits:
 
 ### Multiplayer
 
-Harvest Ledger 0.3.0 supports online and split-screen farms. Install the same version on the host and every farmhand; a farmhand without the mod will only see vanilla item prices.
+Harvest Ledger 0.4.7 supports online and split-screen farms. Install the same version on the host and every farmhand; a farmhand without the mod will only see vanilla item prices.
 
 The host owns the economy state. It runs the daily shipping and tax settlement, saves the ledger, and sends the current market state and economy settings when someone joins. Farmhands use that state for their price display and ledger, but never write a competing copy of the save data. This keeps demand, subsidies, crop rotation, and tax totals from being applied once per player.
 
-Shipping from every farmer's shipping bin is included in the day's market pressure. Taxes remain farm-wide. On farms using separate wallets, the host account pays the farm tax bill.
+Shipping from every farmer's shipping bin is included in the day's market pressure. With a shared wallet, taxes stay on the farm ledger and the host pays as before. With separate wallets, the host settles the day but each player's shipping income, tax bill, arrears, and payment stay on that player's account. Land and machine costs are shared by the previous seven days of shipping income by default; the host can switch that to an even split or host-paid in the config. If no one shipped during that period, the split is even.
 
 ### Performance notes
 
@@ -131,7 +132,7 @@ Generic Mod Config Menu is optional. If installed, it provides an in-game config
 ## Installation
 
 1. Install SMAPI.
-2. Download or build `HarvestLedger 0.3.0.zip`.
+2. Download or build `HarvestLedger 0.4.7`.
 3. Unzip it into your Stardew Valley `Mods` folder.
 4. Launch the game through SMAPI.
 5. Open a save and press `F8` to open the ledger.
@@ -170,11 +171,16 @@ Important dynamic pricing settings:
 - `BaseRecovery`: daily pressure recovery.
 - `MaxDiversityRecovery`: extra recovery from diverse sales.
 - `SubsidyRecovery`: extra recovery when the seasonal subsidy condition is met.
+- `SubsidyCropCurveScale` and `SubsidyMaximumCropCount`: the square-root subsidy target and its cap, so early farms have a meaningful goal without large farms facing a linear requirement.
 - `ExposurePenaltyCap`: penalty cap for relying too heavily on one income category.
 - `MaxProcessingTraceBonus`: bonus for processed goods tied to raw production history.
 - `ExemptItemIds`: object IDs that Harvest Ledger should leave alone.
 
 Taxes and stamina have their own sections. Most values are safe to tune mid-save; if you make large pricing changes, let a day pass so pressure and ledger summaries settle naturally.
+
+For farms with separate wallets, `Taxes.SharedCostAllocation` controls how land and machine costs are split: `ShippingIncome` (the default), `Equal`, or `HostPays`. It has no effect while the farm uses a shared wallet.
+
+`Taxes.ApplyUnpaidTaxPenalty` is off by default. When enabled, `Taxes.UnpaidTaxPenalty` sets the late-fee rate applied to any balance the farm cannot pay at the next morning's collection.
 
 ## Development
 
@@ -189,6 +195,14 @@ The project uses `Pathoschild.Stardew.ModBuildConfig`, so a release zip is gener
 ```text
 bin/Release/net6.0/
 ```
+
+For a versioned release, run:
+
+```bash
+./package-release.sh
+```
+
+It prompts for the release version, updates `HarvestLedger.csproj`, `manifest.json`, and the version references in this README, then writes `releases/HarvestLedger <version>.zip`. It does not copy anything into the live Mods folder.
 
 Main code areas:
 

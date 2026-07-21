@@ -8,6 +8,7 @@ public sealed class TaxLedger
     public int LifetimeAssessedTaxes { get; set; }
     public int LifetimeCollectedTaxes { get; set; }
     public int UnpaidTaxes { get; set; }
+    public int LastUnpaidTaxPenalty { get; set; }
     public int LastIncomeTax { get; set; }
     public int LastLandUseTax { get; set; }
     public int LastAutomationTax { get; set; }

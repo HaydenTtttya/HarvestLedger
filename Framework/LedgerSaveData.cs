@@ -2,7 +2,7 @@ namespace HarvestLedger.Framework;
 
 public sealed class LedgerSaveData
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 5;
     public string LastUpdatedOn { get; set; } = "";
     public string CurrentSeasonKey { get; set; } = "";
     public string SubsidizedCropItemId { get; set; } = "";
@@ -28,11 +28,15 @@ public sealed class LedgerSaveData
     public List<double> RecentNonMainIncomeShares { get; set; } = new();
     public LedgerDaySnapshot LastDay { get; set; } = new();
     public TaxLedger TaxLedger { get; set; } = new();
+    public Dictionary<long, PlayerTaxLedger> PlayerTaxLedgers { get; set; } = new();
+    public Dictionary<long, List<int>> RecentShippingIncomeByPlayerId { get; set; } = new();
+    public bool UsesPlayerTaxLedgers { get; set; }
+    public int AutomationTaxRuleVersion { get; set; }
 
     public void EnsureValid()
     {
-        if (this.SchemaVersion < 2)
-            this.SchemaVersion = 2;
+        if (this.SchemaVersion < 5)
+            this.SchemaVersion = 5;
 
         this.CurrentSeasonKey ??= "";
         this.SubsidizedCropItemId ??= "";
@@ -53,6 +57,20 @@ public sealed class LedgerSaveData
         this.LastDay ??= new LedgerDaySnapshot();
         this.LastDay.EnsureValid();
         this.TaxLedger ??= new TaxLedger();
+        this.PlayerTaxLedgers ??= new Dictionary<long, PlayerTaxLedger>();
+        this.RecentShippingIncomeByPlayerId ??= new Dictionary<long, List<int>>();
+
+        foreach (PlayerTaxLedger playerLedger in this.PlayerTaxLedgers.Values)
+            playerLedger.EnsureValid();
+
+        foreach ((long playerId, List<int>? incomeHistory) in this.RecentShippingIncomeByPlayerId.ToArray())
+        {
+            List<int> validIncomeHistory = incomeHistory?
+                .Select(income => Math.Max(0, income))
+                .TakeLast(7)
+                .ToList() ?? new List<int>();
+            this.RecentShippingIncomeByPlayerId[playerId] = validIncomeHistory;
+        }
 
         foreach (DemandEventState demandEvent in this.DemandEvents)
             demandEvent.CategoryBonuses ??= new Dictionary<ItemMarketCategory, double>();
